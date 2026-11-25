@@ -1,0 +1,452 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isHexColor(val) {
+      return val is string && val.size() == 7 && val.matches('^#[0-9a-fA-F]{6}$');
+    }
+
+    function isValidEmailList(list) {
+      return list is list
+        && list.size() <= 10
+        && (list.size() == 0 || (list[0] is string && list[0].size() >= 3 && list[0].size() <= 160));
+    }
+
+    function isValidRoomNames(val) {
+      return val is map && val.size() <= 30;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function hasVerifiedEmail() {
+      return isVerified() && request.auth.token.email is string;
+    }
+
+    // Verified trusted-circle accounts pre-authorized for Abid's primary museum
+    function isAbidTrustedCircleVisitor() {
+      return hasVerifiedEmail() && (
+        request.auth.token.email == 'abidsarker098@gmail.com' ||
+        request.auth.token.email == 'suraia475@gmail.com'
+      );
+    }
+
+    function isAbidPrimaryOwner(ownerId) {
+      return ownerId == 'CwufCmYF1kOQRybSTFLoktJuo8b2';
+    }
+
+    function getMuseum(museumId) {
+      return get(/databases/$(database)/documents/museums/$(museumId));
+    }
+
+    function museumExists(museumId) {
+      return exists(/databases/$(database)/documents/museums/$(museumId));
+    }
+
+    function canAccessMuseumData(mData) {
+      return isSignedIn() && (
+        mData.ownerId == request.auth.uid ||
+        mData.isOpenByCode == true ||
+        (hasVerifiedEmail() && request.auth.token.email in mData.memberEmails) ||
+        (isAbidPrimaryOwner(mData.ownerId) && isAbidTrustedCircleVisitor())
+      );
+    }
+
+    function canCurateMuseum(museumId) {
+      let mData = getMuseum(museumId).data;
+      return isVerified() && (
+        mData.ownerId == request.auth.uid ||
+        (hasVerifiedEmail() && request.auth.token.email in mData.curatorEmails)
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'gender', 'skinTone', 'hairStyle', 'hairColor',
+          'outfitStyle', 'outfitColor', 'accentColor', 'accessory', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'gender', 'skinTone', 'hairStyle', 'hairColor',
+          'outfitStyle', 'outfitColor', 'accentColor', 'accessory', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && (!('email' in data) || (data.email is string && data.email.size() <= 160))
+        && (data.gender == 'man' || data.gender == 'woman')
+        && isHexColor(data.skinTone)
+        && data.hairStyle is string && data.hairStyle.size() >= 1 && data.hairStyle.size() <= 32
+        && isHexColor(data.hairColor)
+        && data.outfitStyle is string && data.outfitStyle.size() >= 1 && data.outfitStyle.size() <= 32
+        && isHexColor(data.outfitColor)
+        && isHexColor(data.accentColor)
+        && (data.accessory == 'none' || data.accessory == 'glasses' || data.accessory == 'scarf' || data.accessory == 'lanyard')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMuseum(data) {
+      return data.keys().hasAll([
+          'ownerId', 'ownerName', 'title', 'description', 'accessCode', 'wallTheme',
+          'isOpenByCode', 'memberEmails', 'curatorEmails', 'artworkCount', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'ownerName', 'title', 'description', 'accessCode', 'wallTheme',
+          'isOpenByCode', 'memberEmails', 'curatorEmails', 'artworkCount', 'roomNames', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 80
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+        && data.description is string && data.description.size() <= 400
+        && data.accessCode is string && data.accessCode.size() >= 4 && data.accessCode.size() <= 20 && data.accessCode.matches('^[A-Z0-9\\-]+$')
+        && (data.wallTheme == 'alabaster' || data.wallTheme == 'travertine' || data.wallTheme == 'charcoal')
+        && data.isOpenByCode is bool
+        && isValidEmailList(data.memberEmails)
+        && isValidEmailList(data.curatorEmails)
+        && data.artworkCount is int && data.artworkCount >= 0 && data.artworkCount <= 200
+        && (!('roomNames' in data) || isValidRoomNames(data.roomNames))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMuseumCode(data, code) {
+      return data.keys().hasAll(['accessCode', 'museumId', 'ownerId', 'title', 'createdAt'])
+        && data.keys().hasOnly(['accessCode', 'museumId', 'ownerId', 'title', 'createdAt'])
+        && data.accessCode == code
+        && data.accessCode is string && data.accessCode.size() >= 4 && data.accessCode.size() <= 20 && data.accessCode.matches('^[A-Z0-9\\-]+$')
+        && isValidId(data.museumId)
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+        && data.createdAt is timestamp;
+    }
+
+    function isValidArtwork(data, museumId) {
+      return data.keys().hasAll([
+          'museumId', 'ownerId', 'uploadedBy', 'uploadedByName', 'title', 'artist',
+          'dateCaptured', 'notes', 'imageUrl', 'aspectRatio', 'frameStyle',
+          'isOpenByCode', 'viewerEmails', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'museumId', 'ownerId', 'uploadedBy', 'uploadedByName', 'title', 'artist',
+          'dateCaptured', 'notes', 'imageUrl', 'aspectRatio', 'frameStyle',
+          'isOpenByCode', 'viewerEmails', 'createdAt', 'updatedAt'
+        ])
+        && data.museumId == museumId
+        && isValidId(data.museumId)
+        && isValidId(data.ownerId)
+        && isValidId(data.uploadedBy)
+        && data.uploadedByName is string && data.uploadedByName.size() >= 1 && data.uploadedByName.size() <= 80
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.artist is string && data.artist.size() >= 1 && data.artist.size() <= 100
+        && data.dateCaptured is string && data.dateCaptured.size() == 10 && data.dateCaptured.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.notes is string && data.notes.size() <= 500
+        && data.imageUrl is string && data.imageUrl.size() >= 1 && data.imageUrl.size() <= 450000
+        && (data.aspectRatio == '4:3' || data.aspectRatio == '3:4' || data.aspectRatio == '1:1')
+        && (data.frameStyle == 'bronze' || data.frameStyle == 'walnut' || data.frameStyle == 'obsidian' || data.frameStyle == 'alabaster')
+        && data.isOpenByCode is bool
+        && isValidEmailList(data.viewerEmails)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMuseumMember(data, museumId) {
+      return data.keys().hasAll(['museumId', 'ownerId', 'email', 'displayName', 'role', 'gender', 'createdAt'])
+        && data.keys().hasOnly(['museumId', 'ownerId', 'email', 'displayName', 'role', 'gender', 'createdAt'])
+        && data.museumId == museumId
+        && isValidId(data.museumId)
+        && isValidId(data.ownerId)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && (data.role == 'visitor' || data.role == 'curator')
+        && (data.gender == 'man' || data.gender == 'woman')
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPresence(data, museumId, visitorId) {
+      return data.keys().hasAll([
+          'museumId', 'ownerId', 'uid', 'displayName', 'gender', 'skinTone', 'hairStyle',
+          'hairColor', 'outfitStyle', 'outfitColor', 'accentColor', 'accessory',
+          'x', 'z', 'yaw', 'isOpenByCode', 'viewerEmails', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'museumId', 'ownerId', 'uid', 'displayName', 'gender', 'skinTone', 'hairStyle',
+          'hairColor', 'outfitStyle', 'outfitColor', 'accentColor', 'accessory',
+          'x', 'z', 'yaw', 'isOnline', 'memberKey', 'isOpenByCode', 'viewerEmails', 'updatedAt'
+        ])
+        && data.museumId == museumId
+        && isValidId(data.museumId)
+        && isValidId(data.ownerId)
+        && data.uid == visitorId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && (data.gender == 'man' || data.gender == 'woman')
+        && isHexColor(data.skinTone)
+        && data.hairStyle is string && data.hairStyle.size() >= 1 && data.hairStyle.size() <= 32
+        && isHexColor(data.hairColor)
+        && data.outfitStyle is string && data.outfitStyle.size() >= 1 && data.outfitStyle.size() <= 32
+        && isHexColor(data.outfitColor)
+        && isHexColor(data.accentColor)
+        && (data.accessory == 'none' || data.accessory == 'glasses' || data.accessory == 'scarf' || data.accessory == 'lanyard')
+        && data.x is number && data.x >= -200 && data.x <= 200
+        && data.z is number && data.z >= -600 && data.z <= 120
+        && data.yaw is number && data.yaw >= -10 && data.yaw <= 10
+        && (!('isOnline' in data) || data.isOnline is bool)
+        && (!('memberKey' in data) || (data.memberKey is string && data.memberKey.size() >= 1 && data.memberKey.size() <= 32 && data.memberKey.matches('^[a-zA-Z0-9_\\-]+$')))
+        && data.isOpenByCode is bool
+        && isValidEmailList(data.viewerEmails)
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Collection: /users/{userId} (Strict PII Isolation) ---
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'email', 'gender', 'skinTone', 'hairStyle', 'hairColor',
+          'outfitStyle', 'outfitColor', 'accentColor', 'accessory', 'updatedAt'
+        ]);
+      allow delete: if isVerified() && isValidId(userId) && isOwner(userId);
+    }
+
+    // --- Collection: /museumCodes/{code} ---
+    match /museumCodes/{code} {
+      allow get: if isSignedIn() && isValidId(code);
+      allow list: if false;
+      allow create: if isVerified()
+        && isValidId(code)
+        && isValidMuseumCode(incoming(), code)
+        && incoming().createdAt == request.time
+        && (
+          (museumExists(incoming().museumId) && getMuseum(incoming().museumId).data.ownerId == request.auth.uid) ||
+          (existsAfter(/databases/$(database)/documents/museums/$(incoming().museumId))
+            && getAfter(/databases/$(database)/documents/museums/$(incoming().museumId)).data.ownerId == request.auth.uid)
+        );
+      allow update: if false;
+      allow delete: if isVerified()
+        && isValidId(code)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // --- Collection: /museums/{museumId} ---
+    match /museums/{museumId} {
+      allow get: if isSignedIn()
+        && isValidId(museumId)
+        && (
+          (resource == null && museumId == 'museum_' + request.auth.uid) ||
+          (resource != null && canAccessMuseumData(existing()))
+        );
+      allow list: if isSignedIn() && (
+        existing().ownerId == request.auth.uid ||
+        (hasVerifiedEmail() && request.auth.token.email in existing().memberEmails) ||
+        (isAbidPrimaryOwner(existing().ownerId) && isAbidTrustedCircleVisitor())
+      );
+      allow create: if isVerified()
+        && isValidId(museumId)
+        && isValidMuseum(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(museumId)
+        && isValidMuseum(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().accessCode == existing().accessCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Update Museum Settings
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'wallTheme', 'isOpenByCode', 'updatedAt']) ||
+          // Action: Update Custom Room Names
+          incoming().diff(existing()).affectedKeys().hasOnly(['roomNames', 'updatedAt']) ||
+          // Action: Update Access & Curator Lists
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberEmails', 'curatorEmails', 'updatedAt']) ||
+          // Action: Update Artwork Count
+          incoming().diff(existing()).affectedKeys().hasOnly(['artworkCount', 'updatedAt'])
+        );
+      allow delete: if isVerified()
+        && isValidId(museumId)
+        && existing().ownerId == request.auth.uid;
+
+      // --- Subcollection: /museums/{museumId}/artworks/{artworkId} ---
+      match /artworks/{artworkId} {
+        allow get: if isSignedIn()
+          && isValidId(museumId)
+          && isValidId(artworkId)
+          && museumExists(museumId)
+          && canAccessMuseumData(getMuseum(museumId).data);
+        allow list: if isSignedIn() && (
+          existing().ownerId == request.auth.uid ||
+          existing().isOpenByCode == true ||
+          (hasVerifiedEmail() && request.auth.token.email in existing().viewerEmails) ||
+          (isAbidPrimaryOwner(existing().ownerId) && isAbidTrustedCircleVisitor())
+        );
+        allow create: if isVerified()
+          && isValidId(museumId)
+          && isValidId(artworkId)
+          && isValidArtwork(incoming(), museumId)
+          && incoming().uploadedBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && museumExists(museumId)
+          && getMuseum(museumId).data.ownerId == incoming().ownerId
+          && canCurateMuseum(museumId);
+        allow update: if isVerified()
+          && isValidId(museumId)
+          && isValidId(artworkId)
+          && isValidArtwork(incoming(), museumId)
+          && incoming().museumId == existing().museumId
+          && incoming().ownerId == existing().ownerId
+          && incoming().uploadedBy == existing().uploadedBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && museumExists(museumId)
+          && (
+            // Tier 1: Owner edits artwork metadata or syncs sharing flags
+            (getMuseum(museumId).data.ownerId == request.auth.uid && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'artist', 'dateCaptured', 'notes', 'frameStyle', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['isOpenByCode', 'viewerEmails', 'updatedAt'])
+            )) ||
+            // Tier 2: Co-curator edits own artwork metadata
+            (existing().uploadedBy == request.auth.uid && canCurateMuseum(museumId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'artist', 'dateCaptured', 'notes', 'frameStyle', 'updatedAt'])
+            )
+          );
+        allow delete: if isVerified()
+          && isValidId(museumId)
+          && isValidId(artworkId)
+          && museumExists(museumId)
+          && (
+            getMuseum(museumId).data.ownerId == request.auth.uid ||
+            (existing().uploadedBy == request.auth.uid && canCurateMuseum(museumId))
+          );
+      }
+
+      // --- Subcollection: /museums/{museumId}/members/{memberId} ---
+      match /members/{memberId} {
+        allow get: if isSignedIn()
+          && isValidId(museumId)
+          && isValidId(memberId)
+          && museumExists(museumId)
+          && (
+            getMuseum(museumId).data.ownerId == request.auth.uid ||
+            (resource != null && hasVerifiedEmail() && existing().email == request.auth.token.email)
+          );
+        allow list: if isSignedIn() && (
+          existing().ownerId == request.auth.uid ||
+          (hasVerifiedEmail() && existing().email == request.auth.token.email)
+        );
+        allow create: if isVerified()
+          && isValidId(museumId)
+          && isValidId(memberId)
+          && isValidMuseumMember(incoming(), museumId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && museumExists(museumId)
+          && getMuseum(museumId).data.ownerId == request.auth.uid;
+        allow update: if isVerified()
+          && isValidId(museumId)
+          && isValidId(memberId)
+          && isValidMuseumMember(incoming(), museumId)
+          && incoming().museumId == existing().museumId
+          && incoming().ownerId == existing().ownerId
+          && incoming().email == existing().email
+          && incoming().createdAt == existing().createdAt
+          && museumExists(museumId)
+          && getMuseum(museumId).data.ownerId == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'gender']);
+        allow delete: if isVerified()
+          && isValidId(museumId)
+          && isValidId(memberId)
+          && museumExists(museumId)
+          && getMuseum(museumId).data.ownerId == request.auth.uid;
+      }
+
+      // --- Subcollection: /museums/{museumId}/presence/{visitorId} ---
+      match /presence/{visitorId} {
+        allow get: if isSignedIn()
+          && isValidId(museumId)
+          && isValidId(visitorId)
+          && museumExists(museumId)
+          && canAccessMuseumData(getMuseum(museumId).data);
+        allow list: if isSignedIn() && (
+          existing().ownerId == request.auth.uid ||
+          existing().uid == request.auth.uid ||
+          existing().isOpenByCode == true ||
+          (hasVerifiedEmail() && request.auth.token.email in existing().viewerEmails) ||
+          (isAbidPrimaryOwner(existing().ownerId) && isAbidTrustedCircleVisitor())
+        );
+        allow create: if isVerified()
+          && isValidId(museumId)
+          && isValidId(visitorId)
+          && visitorId == request.auth.uid
+          && isValidPresence(incoming(), museumId, visitorId)
+          && incoming().updatedAt == request.time
+          && museumExists(museumId)
+          && getMuseum(museumId).data.ownerId == incoming().ownerId
+          && canAccessMuseumData(getMuseum(museumId).data);
+        allow update: if isVerified()
+          && isValidId(museumId)
+          && isValidId(visitorId)
+          && visitorId == request.auth.uid
+          && isValidPresence(incoming(), museumId, visitorId)
+          && incoming().museumId == existing().museumId
+          && incoming().ownerId == existing().ownerId
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && museumExists(museumId)
+          && canAccessMuseumData(getMuseum(museumId).data)
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'gender', 'skinTone', 'hairStyle', 'hairColor',
+            'outfitStyle', 'outfitColor', 'accentColor', 'accessory',
+            'x', 'z', 'yaw', 'isOnline', 'memberKey', 'isOpenByCode', 'viewerEmails', 'updatedAt'
+          ]);
+        allow delete: if isVerified()
+          && isValidId(museumId)
+          && isValidId(visitorId)
+          && visitorId == request.auth.uid;
+      }
+    }
+  }
+}

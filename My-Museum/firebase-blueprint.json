@@ -1,0 +1,151 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user profile and customizable 3D avatar configuration.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "email": { "type": "string", "maxLength": 160 },
+        "gender": { "type": "string", "enum": ["man", "woman"] },
+        "skinTone": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "hairStyle": { "type": "string", "maxLength": 32 },
+        "hairColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "outfitStyle": { "type": "string", "maxLength": 32 },
+        "outfitColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "accentColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "accessory": { "type": "string", "enum": ["none", "glasses", "scarf", "lanyard"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "gender", "skinTone", "hairStyle", "hairColor", "outfitStyle", "outfitColor", "accentColor", "accessory", "createdAt", "updatedAt"]
+    },
+    "Museum": {
+      "title": "Museum",
+      "description": "Personal or shared 3D virtual museum hall metadata and access settings.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 400 },
+        "accessCode": { "type": "string", "minLength": 4, "maxLength": 20, "pattern": "^[A-Z0-9\\-]+$" },
+        "wallTheme": { "type": "string", "enum": ["alabaster", "travertine", "charcoal"] },
+        "isOpenByCode": { "type": "boolean" },
+        "memberEmails": { "type": "array", "description": "Bounded list of up to 10 verified collaborator emails." },
+        "curatorEmails": { "type": "array", "description": "Bounded list of up to 10 verified co-curator emails allowed to add artworks." },
+        "artworkCount": { "type": "number" },
+        "roomNames": { "type": "object", "description": "Optional bounded map of up to 30 custom room names keyed by room index." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "ownerName", "title", "description", "accessCode", "wallTheme", "isOpenByCode", "memberEmails", "curatorEmails", "artworkCount", "createdAt", "updatedAt"]
+    },
+    "MuseumCode": {
+      "title": "MuseumCode",
+      "description": "Lookup index mapping a shareable museum access code to its museumId.",
+      "type": "object",
+      "properties": {
+        "accessCode": { "type": "string", "minLength": 4, "maxLength": 20, "pattern": "^[A-Z0-9\\-]+$" },
+        "museumId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["accessCode", "museumId", "ownerId", "title", "createdAt"]
+    },
+    "Artwork": {
+      "title": "Artwork",
+      "description": "Framed museum artwork placed on an expandable 3D gallery wall.",
+      "type": "object",
+      "properties": {
+        "museumId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uploadedBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uploadedByName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "artist": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "dateCaptured": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "imageUrl": { "type": "string", "minLength": 1, "maxLength": 450000 },
+        "aspectRatio": { "type": "string", "enum": ["4:3", "3:4", "1:1"] },
+        "frameStyle": { "type": "string", "enum": ["bronze", "walnut", "obsidian", "alabaster"] },
+        "isOpenByCode": { "type": "boolean" },
+        "viewerEmails": { "type": "array", "description": "Mirrored bounded list of up to 10 invited emails for secure list queries." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["museumId", "ownerId", "uploadedBy", "uploadedByName", "title", "artist", "dateCaptured", "notes", "imageUrl", "aspectRatio", "frameStyle", "isOpenByCode", "viewerEmails", "createdAt", "updatedAt"]
+    },
+    "MuseumMember": {
+      "title": "MuseumMember",
+      "description": "Granted access record for an invited museum visitor or co-curator.",
+      "type": "object",
+      "properties": {
+        "museumId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "role": { "type": "string", "enum": ["visitor", "curator"] },
+        "gender": { "type": "string", "enum": ["man", "woman"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["museumId", "ownerId", "email", "displayName", "role", "gender", "createdAt"]
+    },
+    "VisitorPresence": {
+      "title": "VisitorPresence",
+      "description": "Real-time 3D position and avatar state of a visitor walking inside a museum.",
+      "type": "object",
+      "properties": {
+        "museumId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "gender": { "type": "string", "enum": ["man", "woman"] },
+        "skinTone": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "hairStyle": { "type": "string", "maxLength": 32 },
+        "hairColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "outfitStyle": { "type": "string", "maxLength": 32 },
+        "outfitColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "accentColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "accessory": { "type": "string", "enum": ["none", "glasses", "scarf", "lanyard"] },
+        "x": { "type": "number" },
+        "z": { "type": "number" },
+        "yaw": { "type": "number" },
+        "isOnline": { "type": "boolean" },
+        "memberKey": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "isOpenByCode": { "type": "boolean" },
+        "viewerEmails": { "type": "array", "description": "Bounded list of up to 10 invited emails for secure list queries." },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["museumId", "ownerId", "uid", "displayName", "gender", "skinTone", "hairStyle", "hairColor", "outfitStyle", "outfitColor", "accentColor", "accessory", "x", "z", "yaw", "isOpenByCode", "viewerEmails", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User avatar profile and private account metadata."
+    },
+    "/museums/{museumId}": {
+      "schema": { "$ref": "#/entities/Museum" },
+      "description": "Museum master records owned by users and optionally shared with invited emails or by access code."
+    },
+    "/museumCodes/{code}": {
+      "schema": { "$ref": "#/entities/MuseumCode" },
+      "description": "Access code lookup records pointing to a museumId."
+    },
+    "/museums/{museumId}/artworks/{artworkId}": {
+      "schema": { "$ref": "#/entities/Artwork" },
+      "description": "Curated images displayed on the expanding 3D museum walls."
+    },
+    "/museums/{museumId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/MuseumMember" },
+      "description": "Invited visitors and co-curators granted access to a museum."
+    },
+    "/museums/{museumId}/presence/{visitorId}": {
+      "schema": { "$ref": "#/entities/VisitorPresence" },
+      "description": "Live 3D avatar coordinates and styling for visitors currently inside the museum."
+    }
+  }
+}
