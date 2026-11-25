@@ -230,6 +230,13 @@ function getCompanionVisualSignature(v: CompanionAvatarEntry): string {
   ].join('|');
 }
 
+// Responsive notification HUD placement: on mobile/tablets (<md), positioned at top next to the Minimap!
+// In mobile landscape: right beside the map (top-2.5 right-[144px] / sm:right-[234px]).
+// In mobile portrait: right under the map in the top-right corner (top-[102px] right-2.5).
+// On desktop (md+): centered horizontally above the bottom controls.
+const PROMPT_HUD_POSITION =
+  "max-md:fixed max-md:z-30 max-md:landscape:top-2.5 max-md:landscape:right-[144px] sm:max-md:landscape:right-[234px] max-md:portrait:top-[102px] max-md:portrait:right-2.5 max-md:max-w-[calc(100vw-154px)] max-md:portrait:max-w-[calc(100vw-20px)] max-md:text-[11px] max-md:px-2.5 max-md:py-1.5 md:absolute md:top-auto md:right-auto md:bottom-[116px] md:left-1/2 md:-translate-x-1/2 md:z-20 md:max-w-none";
+
 export function Museum3DView({
   museum,
   avatar,
@@ -509,8 +516,20 @@ export function Museum3DView({
     lastBroadcastYaw: Number.NaN,
   });
 
-  // Mobile/D-pad held input state
+  // Mobile/D-pad and Touch Virtual Joystick input state
   const virtualKeysRef = useRef<Record<string, boolean>>({});
+  const joystickInputRef = useRef<{ forward: number; turn: number }>({ forward: 0, turn: 0 });
+  const isMobileSprintRef = useRef<boolean>(false);
+  const [isMobileSprint, setIsMobileSprint] = useState<boolean>(false);
+  const [joystickState, setJoystickState] = useState<{
+    active: boolean;
+    knobX: number;
+    knobY: number;
+  }>({
+    active: false,
+    knobX: 0,
+    knobY: 0,
+  });
 
   const toggleDoorById = useCallback((doorId: string) => {
     const next = new Set(openDoorIdsRef.current);
@@ -1420,6 +1439,7 @@ export function Museum3DView({
       for (const prop of Object.keys(virtualKeysRef.current)) {
         virtualKeysRef.current[prop] = false;
       }
+      joystickInputRef.current = { forward: 0, turn: 0 };
     };
     clearKeysRef.current = () => {
       clearAllKeys();
@@ -1656,6 +1676,14 @@ export function Museum3DView({
       }
     };
 
+    let movePointerId: number | null = null;
+    let moveStartX = 0;
+    let moveStartY = 0;
+
+    let lookPointerId: number | null = null;
+    let lastLookX = 0;
+    let lastLookY = 0;
+
     const onPointerDown = (e: PointerEvent) => {
       if (
         document.activeElement instanceof HTMLElement &&
@@ -1664,17 +1692,67 @@ export function Museum3DView({
         document.activeElement.blur();
       }
       rootContainerRef.current?.focus({ preventScroll: true });
-      isDragging = true;
-      dragMoved = false;
-      lastPointerX = e.clientX;
-      lastPointerY = e.clientY;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      const isTouch = e.pointerType === 'touch';
+      const isLeftSide = isTouch && e.clientX < rect.left + rect.width * 0.52;
+
+      if (isLeftSide) {
+        // Left-side touch on mobile -> Instant Virtual Joystick Movement
+        movePointerId = e.pointerId;
+        moveStartX = e.clientX;
+        moveStartY = e.clientY;
+        dragMoved = false;
+        joystickInputRef.current = { forward: 0, turn: 0 };
+        setJoystickState({
+          active: true,
+          knobX: 0,
+          knobY: 0,
+        });
+      } else {
+        // Right-side touch on mobile or mouse anywhere -> Camera Look & Interact
+        lookPointerId = e.pointerId;
+        isDragging = true;
+        dragMoved = false;
+        lastLookX = e.clientX;
+        lastLookY = e.clientY;
+        lastPointerX = e.clientX;
+        lastPointerY = e.clientY;
+      }
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (isDragging) {
-        const dx = e.clientX - lastPointerX;
-        const dy = e.clientY - lastPointerY;
+      if (e.pointerId === movePointerId) {
+        const dx = e.clientX - moveStartX;
+        const dy = e.clientY - moveStartY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMoved = true;
+        const maxR = 48;
+        const dist = Math.hypot(dx, dy);
+        const clampedDist = Math.min(dist, maxR);
+        const angle = Math.atan2(dy, dx);
+        const normX = clampedDist > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
+        const normY = clampedDist > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
+
+        // Pushing UP (-dy) moves forward (+1), pulling DOWN (+dy) moves backward (-1)
+        // Pushing LEFT (-dx) steers left (+1), pushing RIGHT (+dx) steers right (-1)
+        joystickInputRef.current = {
+          forward: -normY,
+          turn: -normX,
+        };
+        setJoystickState({
+          active: true,
+          knobX: normX * maxR,
+          knobY: normY * maxR,
+        });
+        return;
+      }
+
+      if (e.pointerId === lookPointerId || (lookPointerId === null && isDragging)) {
+        const dx = e.clientX - lastLookX;
+        const dy = e.clientY - lastLookY;
         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true;
+        lastLookX = e.clientX;
+        lastLookY = e.clientY;
         lastPointerX = e.clientX;
         lastPointerY = e.clientY;
         playerStateRef.current.camYaw = normalizeAngle(
@@ -1824,15 +1902,22 @@ export function Museum3DView({
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      const wasClick = isDragging && !dragMoved;
-      isDragging = false;
-      if (!wasClick) return;
+      if (e.pointerId === movePointerId) {
+        movePointerId = null;
+        joystickInputRef.current = { forward: 0, turn: 0 };
+        setJoystickState({ active: false, knobX: 0, knobY: 0 });
+      }
+      if (e.pointerId === lookPointerId || lookPointerId === null) {
+        lookPointerId = null;
+        const wasClick = isDragging && !dragMoved;
+        isDragging = false;
+        if (!wasClick) return;
 
-      const rect = renderer.domElement.getBoundingClientRect();
-      pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(pointerNdc, camera);
-      const hits = raycaster.intersectObjects(interactablesRef.current, false);
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointerNdc, camera);
+        const hits = raycaster.intersectObjects(interactablesRef.current, false);
       if (hits.length > 0) {
         const ud = hits[0].object.userData;
         if (typeof ud.rideId === 'string') {
@@ -1924,7 +2009,8 @@ export function Museum3DView({
           }
         }
       }
-    };
+    }
+  };
 
     const onResize = () => {
       if (!container) return;
@@ -1936,13 +2022,27 @@ export function Museum3DView({
       renderer.render(scene, camera);
     };
 
+    const onPointerCancel = (e: PointerEvent) => {
+      if (e.pointerId === movePointerId) {
+        movePointerId = null;
+        joystickInputRef.current = { forward: 0, turn: 0 };
+        setJoystickState({ active: false, knobX: 0, knobY: 0 });
+      }
+      if (e.pointerId === lookPointerId) {
+        lookPointerId = null;
+        isDragging = false;
+      }
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', clearAllKeys);
     window.addEventListener('resize', onResize);
+    renderer.domElement.style.touchAction = 'none';
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
 
     rootContainerRef.current?.focus({ preventScroll: true });
 
@@ -1988,13 +2088,19 @@ export function Museum3DView({
 
       const k = keys;
       const vk = virtualKeysRef.current;
-      const forwardIn =
+      const keyForward =
         (k.KeyW || k.ArrowUp || vk.up ? 1 : 0) -
         (k.KeyS || k.ArrowDown || vk.down ? 1 : 0);
-      // Turning left/right (A/D, ArrowLeft/ArrowRight, Q, or mobile pad) rotates BOTH the 3D model and screen view smoothly
-      const turnIn =
+      const keyTurn =
         (k.KeyA || k.ArrowLeft || k.KeyQ || vk.left ? 1 : 0) -
         (k.KeyD || k.ArrowRight || vk.right ? 1 : 0);
+
+      const joyForward = joystickInputRef.current.forward;
+      const joyTurn = joystickInputRef.current.turn;
+
+      const forwardIn = Math.abs(joyForward) > 0.05 ? joyForward : keyForward;
+      const turnIn = Math.abs(joyTurn) > 0.05 ? joyTurn : keyTurn;
+      const sprintActive = Boolean(k.ShiftLeft || k.ShiftRight || isMobileSprintRef.current);
 
       const activeVehicleId = drivingVehicleIdRef.current;
       const activeVehicle = activeVehicleId
@@ -2341,7 +2447,7 @@ export function Museum3DView({
           {
             forward: forwardIn,
             turn: turnIn,
-            sprint: Boolean(k.ShiftLeft || k.ShiftRight),
+            sprint: sprintActive,
           },
           {
             camYaw: ps.camYaw,
@@ -3194,6 +3300,7 @@ export function Museum3DView({
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       builtMuseumRef.current?.dispose();
       builtMuseumRef.current = null;
@@ -3477,7 +3584,7 @@ export function Museum3DView({
     <div
       ref={rootContainerRef}
       tabIndex={0}
-      className="relative w-screen h-screen overflow-hidden bg-[#1C1917] select-none outline-none"
+      className="relative w-screen h-screen overflow-hidden bg-[#1C1917] select-none outline-none touch-none"
       data-testid="museum-3d-view"
       data-rooms={layout.roomCount}
       data-current-room={currentRoomIndex}
@@ -3599,11 +3706,11 @@ export function Museum3DView({
       {/* Active Amusement Park Ride Banner (Dolna / Chorki / Roller Coaster) */}
       {activeRideInfo && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-[#181512]/95 text-[#F7F5F0] px-4 py-2.5 border border-rose-500 shadow-2xl flex items-center gap-3"
+          className={`bg-[#181512]/95 text-[#F7F5F0] border border-rose-500 shadow-2xl flex items-center gap-2 sm:gap-3 ${PROMPT_HUD_POSITION}`}
           data-testid="ride-banner"
         >
           <Sparkles className="w-4 h-4 text-rose-300 shrink-0" />
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             {activeRideInfo.id === 'ride-east-coaster' ? (
               coasterRideState.state === 'countdown' ? (
                 <>
@@ -3658,14 +3765,14 @@ export function Museum3DView({
           <button
             type="button"
             onClick={toggleCompanionRide}
-            className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-[11px] text-rose-200 border border-rose-500/40 rounded transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-[11px] text-rose-200 border border-rose-500/40 rounded transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             {ridingCompanionName ? 'Dismiss [J]' : 'Invite Companion [J]'}
           </button>
           <button
             type="button"
             onClick={exitCurrentRide}
-            className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md"
           >
             Get Off [F]
           </button>
@@ -3675,11 +3782,11 @@ export function Museum3DView({
       {/* Active Driving Banner (with Dismount Button) */}
       {!activeRideInfo && drivingVehicleInfo && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-[#181512]/95 text-[#F7F5F0] px-4 py-2.5 border border-[#C99A5B] shadow-2xl flex items-center gap-3"
+          className={`bg-[#181512]/95 text-[#F7F5F0] border border-[#C99A5B] shadow-2xl flex items-center gap-2 sm:gap-3 ${PROMPT_HUD_POSITION}`}
           data-testid="driving-banner"
         >
           <Car className="w-4 h-4 text-[#E8CFA6] shrink-0" />
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             Driving <strong className="text-[#E8CFA6]">{drivingVehicleInfo.title}</strong>
             {drivingVehicleInfo.stolen ? ' (Chintai)' : ''} · W/S Gas · A/D Steer · Shift Boost
             {ridingCompanionName && (
@@ -3691,14 +3798,14 @@ export function Museum3DView({
           <button
             type="button"
             onClick={toggleCompanionRide}
-            className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-[11px] text-[#E8CFA6] border border-[#C99A5B]/40 rounded transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-[11px] text-[#E8CFA6] border border-[#C99A5B]/40 rounded transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             {ridingCompanionName ? 'Dismiss [J]' : 'Invite Companion [J]'}
           </button>
           <button
             type="button"
             onClick={exitCurrentVehicle}
-            className="px-2.5 py-1 bg-[#8A5A2B] hover:bg-[#9E6833] text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 bg-[#8A5A2B] hover:bg-[#9E6833] text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md"
           >
             Get Off [F]
           </button>
@@ -3708,7 +3815,7 @@ export function Museum3DView({
       {/* Nearby Amusement Park Ride (Dolna / Chorki) Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && nearbyRide && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-[#181512]/95 text-[#F7F5F0] px-4 py-2.5 border border-rose-500/80 shadow-2xl flex items-center gap-3"
+          className={`bg-[#181512]/95 text-[#F7F5F0] border border-rose-500/80 shadow-2xl flex items-center gap-2 sm:gap-3 ${PROMPT_HUD_POSITION}`}
           data-testid="amusement-ride-prompt"
         >
           <Sparkles className="w-4 h-4 text-rose-300 shrink-0" />
@@ -3718,7 +3825,7 @@ export function Museum3DView({
             );
             return (
               <>
-                <span className="text-xs whitespace-nowrap">
+                <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
                   Press <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-600 font-mono text-rose-300">E</kbd> to ride{' '}
                   <strong className="text-rose-200">{nearbyRide.title}</strong>
                   {existingRider ? (
@@ -3732,7 +3839,7 @@ export function Museum3DView({
                 <button
                   type="button"
                   onClick={() => mountAmusementRide(nearbyRide.id)}
-                  className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+                  className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md"
                 >
                   {existingRider ? `Join ${existingRider.displayName} [E]` : 'Ride [E]'}
                 </button>
@@ -3745,20 +3852,20 @@ export function Museum3DView({
       {/* Nearby Passing Vehicle Stop & Talk Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && !nearbyRide && nearbyVehicle && !talkSession && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-[#181512]/95 text-[#F7F5F0] px-4 py-2.5 border border-emerald-500/80 shadow-2xl flex items-center gap-3"
+          className={`bg-[#181512]/95 text-[#F7F5F0] border border-emerald-500/80 shadow-2xl flex items-center gap-2 sm:gap-3 ${PROMPT_HUD_POSITION}`}
           data-testid="vehicle-hail-prompt"
         >
           <MessageSquare className="w-4 h-4 text-emerald-300 shrink-0" />
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             Press <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-600 font-mono text-emerald-300">E</kbd> to stop{' '}
             <strong className="text-emerald-200">{nearbyVehicle.title}</strong> ({nearbyVehicle.driverName}) — Talk / Vara / Chintai
           </span>
           <button
             type="button"
             onClick={() => stopAndTalkToVehicle(nearbyVehicle.id)}
-            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md"
           >
-            Stop &amp; Talk
+            Stop &amp; Talk [E]
           </button>
         </div>
       )}
@@ -3766,18 +3873,18 @@ export function Museum3DView({
       {/* Nearby Grand Market Shop Stall Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && !nearbyRide && nearbyMarketItem && !marketSession && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-[#181512]/95 text-[#F7F5F0] px-4 py-2.5 border-2 border-[#EAB308] shadow-2xl flex items-center gap-3"
+          className={`bg-[#181512]/95 text-[#F7F5F0] border-2 border-[#EAB308] shadow-2xl flex items-center gap-2 sm:gap-3 ${PROMPT_HUD_POSITION}`}
           data-testid="market-shop-prompt"
         >
           <span className="text-xl shrink-0">{nearbyMarketItem.icon}</span>
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-600 font-mono text-amber-300">E</kbd> কি চাপুন{' '}
             <strong className="text-amber-200">{nearbyMarketItem.stallName}</strong>-এ {nearbyMarketItem.banglaName} কেনাকাটা ও দরদাম করতে
           </span>
           <button
             type="button"
             onClick={() => setMarketSession(createMarketSession(nearbyMarketItem))}
-            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs transition-colors cursor-pointer whitespace-nowrap shadow-md"
+            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md"
           >
             দোকানে ঢুকুন [E]
           </button>
@@ -3837,18 +3944,18 @@ export function Museum3DView({
       {/* Nearby Metro Train Boarding Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && !isRidingMetro && nearbyMetroBoardable && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-emerald-950/95 text-emerald-100 px-4 py-2.5 border-2 border-emerald-400 shadow-2xl flex items-center gap-3 animate-pulse pointer-events-auto"
+          className={`bg-emerald-950/95 text-emerald-100 border-2 border-emerald-400 shadow-2xl flex items-center gap-2 sm:gap-3 animate-pulse pointer-events-auto ${PROMPT_HUD_POSITION}`}
           data-testid="metro-board-prompt"
         >
           <span className="text-xl shrink-0">🚇</span>
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             <kbd className="px-1.5 py-0.5 bg-stone-900 border border-emerald-400 font-mono text-emerald-300 font-bold">E</kbd> কি চাপুন{' '}
             <strong className="text-emerald-300">মেট্রোরেলে চড়ে বসতে</strong> (Chittagong &harr; Museum &harr; Cox&apos;s Bazar)
           </span>
           <button
             type="button"
             onClick={mountMetroTrain}
-            className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md"
+            className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md shrink-0 whitespace-nowrap"
           >
             ট্রেনে উঠুন [E]
           </button>
@@ -3858,31 +3965,31 @@ export function Museum3DView({
       {/* Active Mountain Gondola Cable Car Ride Banner */}
       {isRidingGondola && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-emerald-950/95 text-emerald-100 px-5 py-2.5 border-2 border-emerald-400 shadow-2xl flex items-center gap-3.5 animate-pulse pointer-events-auto rounded"
+          className={`bg-emerald-950/95 text-emerald-100 border-2 border-emerald-400 shadow-2xl flex items-center gap-2.5 sm:gap-3.5 animate-pulse pointer-events-auto rounded ${PROMPT_HUD_POSITION}`}
           data-testid="gondola-ride-banner"
         >
           <span className="text-xl shrink-0">🚡</span>
-          <div className="flex flex-col text-left">
-            <span className="text-xs font-bold text-amber-300">
-              গুলমার্গ গন্ডোলা কেবল কারে ভ্রমণ করছেন (Apharwat Summit Peak)
+          <div className="flex flex-col text-left max-md:max-w-[150px]">
+            <span className="text-xs font-bold text-amber-300 truncate">
+              গুলমার্গ গন্ডোলা কেবল কার (Apharwat Peak)
             </span>
-            <span className="text-[11px] text-emerald-200">
-              মাউস / A / D / W / S ঘুরিয়ে কাঁচের ভেতর থেকে চারপাশের ৩৬০° প্যানোরামিক তুষার ভিউ দেখুন
+            <span className="text-[11px] text-emerald-200 truncate">
+              ৩৬০° প্যানোরামিক তুষার ভিউ
             </span>
           </div>
           <button
             type="button"
             onClick={() => setCameraMode((prev) => (prev === 'first' ? 'third' : 'first'))}
-            className="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow whitespace-nowrap"
+            className="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow whitespace-nowrap shrink-0"
           >
-            {cameraMode === 'first' ? '👁️ বাইরের ভিউ (3rd Person)' : '👁️ ভেতর থেকে ভিউ (1st Person)'} [C]
+            {cameraMode === 'first' ? '👁️ 3rd Person' : '👁️ 1st Person'} [C]
           </button>
           <button
             type="button"
             onClick={exitGondolaCabin}
-            className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md whitespace-nowrap"
+            className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md whitespace-nowrap shrink-0"
           >
-            প্ল্যাটফর্মে নামুন [E]
+            নামুন [E]
           </button>
         </div>
       )}
@@ -3890,18 +3997,18 @@ export function Museum3DView({
       {/* Nearby Gondola Ticket Counter Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && !isRidingMetro && !isRidingGondola && nearbyGondolaCounter && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-sky-950/95 text-sky-100 px-4 py-2.5 border-2 border-sky-400 shadow-2xl flex items-center gap-3 animate-pulse pointer-events-auto rounded"
+          className={`bg-sky-950/95 text-sky-100 border-2 border-sky-400 shadow-2xl flex items-center gap-2 sm:gap-3 animate-pulse pointer-events-auto rounded ${PROMPT_HUD_POSITION}`}
           data-testid="gondola-counter-prompt"
         >
           <span className="text-xl shrink-0">🎫</span>
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             <kbd className="px-1.5 py-0.5 bg-stone-900 border border-sky-400 font-mono text-sky-300 font-bold">E</kbd> কি চাপুন{' '}
             <strong className="text-sky-300">গুলমার্গ গন্ডোলা টিকেট কাউন্টারে</strong> (১০০৳ / ফ্রি রাইড)
           </span>
           <button
             type="button"
             onClick={buyGondolaTicket}
-            className="px-3 py-1 bg-sky-500 hover:bg-sky-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md"
+            className="px-3 py-1 bg-sky-500 hover:bg-sky-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md shrink-0 whitespace-nowrap"
           >
             টিকেট কাটুন [E]
           </button>
@@ -3911,19 +4018,19 @@ export function Museum3DView({
       {/* Nearby Vehicle Board / Drive Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && !isRidingMetro && !isRidingGondola && nearbyVehicle && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-amber-950/95 text-amber-100 px-4 py-2.5 border-2 border-amber-400 shadow-2xl flex items-center gap-3 animate-pulse pointer-events-auto"
+          className={`bg-amber-950/95 text-amber-100 border-2 border-amber-400 shadow-2xl flex items-center gap-2 sm:gap-3 animate-pulse pointer-events-auto ${PROMPT_HUD_POSITION}`}
           data-testid="vehicle-board-prompt"
         >
           <span className="text-xl shrink-0">🚗</span>
-          <span className="text-xs whitespace-nowrap">
-            <kbd className="px-1.5 py-0.5 bg-stone-900 border border-amber-400 font-mono text-amber-300 font-bold">E</kbd> ভাড়া দরদাম /{' '}
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
+            <kbd className="px-1.5 py-0.5 bg-stone-900 border border-amber-400 font-mono text-amber-300 font-bold">E</kbd> ভাড়া दरদাম /{' '}
             <kbd className="px-1.5 py-0.5 bg-stone-900 border border-amber-400 font-mono text-amber-300 font-bold">T</kbd> কি চাপুন{' '}
             <strong className="text-amber-300">{nearbyVehicle.title}-এ উঠতে</strong>
           </span>
           <button
             type="button"
             onClick={() => boardOrDriveNearbyVehicle(nearbyVehicle.id)}
-            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer shadow active:scale-95 transition-all"
+            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer shadow active:scale-95 transition-all shrink-0 whitespace-nowrap"
           >
             গাড়ি চালান [T]
           </button>
@@ -3933,11 +4040,11 @@ export function Museum3DView({
       {/* Nearby Gondola Boarding Prompt */}
       {!drivingVehicleInfo && !activeRideInfo && !isRidingMetro && !isRidingGondola && nearbyGondolaBoardable && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-emerald-950/95 text-emerald-100 px-4 py-2.5 border-2 border-emerald-400 shadow-2xl flex items-center gap-3 animate-pulse pointer-events-auto"
+          className={`bg-emerald-950/95 text-emerald-100 border-2 border-emerald-400 shadow-2xl flex items-center gap-2 sm:gap-3 animate-pulse pointer-events-auto ${PROMPT_HUD_POSITION}`}
           data-testid="gondola-board-prompt"
         >
           <span className="text-xl shrink-0">🚡</span>
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             <kbd className="px-1.5 py-0.5 bg-stone-900 border border-emerald-400 font-mono text-emerald-300 font-bold">E</kbd> কি চাপুন{' '}
             <strong className="text-emerald-300">গন্ডোলা ক্যাবল কারে উঠতে</strong> (Valley Base &harr; Apharwat Peak)
           </span>
@@ -3947,7 +4054,7 @@ export function Museum3DView({
               const bCabin = findBoardableGondola({ x: playerStateRef.current.x, y: playerStateRef.current.y, z: playerStateRef.current.z }, gondolaSysRef.current.cabins);
               if (bCabin) mountGondolaCabin(bCabin.cabinId);
             }}
-            className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md"
+            className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs rounded-sm cursor-pointer active:scale-95 transition-all shadow-md shrink-0 whitespace-nowrap"
           >
             গন্ডোলায় উঠুন [E]
           </button>
@@ -4093,7 +4200,7 @@ export function Museum3DView({
       {/* Nearby Door Keyboard & Click Prompt (including Room 1 Outdoor Exit Door) */}
       {!drivingVehicleInfo && !activeRideInfo && !nearbyRide && !nearbyVehicle && nearbyDoor && (
         <div
-          className="absolute bottom-[116px] left-1/2 -translate-x-1/2 z-20 bg-[#181512]/95 text-[#F7F5F0] px-4 py-2.5 border border-[#C99A5B] shadow-2xl flex items-center gap-3"
+          className={`bg-[#181512]/95 text-[#F7F5F0] border border-[#C99A5B] shadow-2xl flex items-center gap-2 sm:gap-3 ${PROMPT_HUD_POSITION}`}
           data-testid="door-prompt"
         >
           {nearbyDoorIsOpen ? (
@@ -4101,7 +4208,7 @@ export function Museum3DView({
           ) : (
             <DoorClosed className="w-4 h-4 text-[#E8CFA6] shrink-0" />
           )}
-          <span className="text-xs whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap max-md:whitespace-normal max-md:line-clamp-2">
             Press <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-600 font-mono text-[#E8CFA6]">F</kbd> or{' '}
             <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-600 font-mono text-[#E8CFA6]">Space</kbd> to{' '}
             {nearbyDoorIsOpen ? 'close' : 'open'} door to{' '}
@@ -4110,7 +4217,7 @@ export function Museum3DView({
           <button
             type="button"
             onClick={() => toggleDoorById(nearbyDoor.id)}
-            className="px-2.5 py-1 bg-[#8A5A2B] hover:bg-[#9E6833] text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 bg-[#8A5A2B] hover:bg-[#9E6833] text-white text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md"
           >
             {nearbyDoorIsOpen ? 'Close Door' : isNearbyExitDoor ? 'Open Exit Door' : 'Open Door'}
           </button>
@@ -4119,7 +4226,7 @@ export function Museum3DView({
 
       {/* Subtle Hover Prompt for Artworks, Door Signboards, Doors, or Street Vehicles */}
       {hoveredPrompt && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10 pointer-events-none bg-[#181512]/92 text-[#F7F5F0] px-4 py-2 border border-[#C99A5B]/60 text-xs whitespace-nowrap">
+        <div className={`pointer-events-none bg-[#181512]/92 text-[#F7F5F0] px-4 py-2 border border-[#C99A5B]/60 text-xs whitespace-nowrap ${PROMPT_HUD_POSITION}`}>
           {hoveredPrompt.kind === 'artwork' && (
             <>
               Click to inspect <span className="font-semibold text-[#E8CFA6]">{hoveredPrompt.label}</span>
@@ -4225,53 +4332,193 @@ export function Museum3DView({
         </div>
       )}
 
-      {/* Compact On-Screen Touch / Click Walk Pad (Mobile) */}
+      {/* Mobile Virtual Analog Movement Joystick (Bottom-Left) */}
       <div
-        className="absolute bottom-24 right-4 z-10 md:hidden grid grid-cols-3 gap-1 w-28"
-        aria-label="Directional walk pad"
+        className="fixed bottom-6 left-6 z-30 md:hidden pointer-events-auto touch-none select-none"
+        aria-label="Mobile Movement Joystick"
       >
-        <div />
-        <button
-          type="button"
-          aria-label="Walk forward"
-          onPointerDown={() => setVirtualKey('up', true)}
-          onPointerUp={() => setVirtualKey('up', false)}
-          onPointerLeave={() => setVirtualKey('up', false)}
-          className="h-9 bg-[#181512]/90 border border-stone-700 text-stone-100 flex items-center justify-center active:bg-[#8A5A2B]"
+        <div
+          className={`relative w-28 h-28 rounded-full border-2 transition-all duration-150 flex items-center justify-center shadow-2xl backdrop-blur-md ${
+            joystickState.active
+              ? 'bg-amber-950/75 border-amber-400 scale-105 shadow-amber-500/25 ring-2 ring-amber-400/40'
+              : 'bg-stone-950/60 border-stone-600/70'
+          }`}
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+            const rect = e.currentTarget.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const dx = e.clientX - centerX;
+            const dy = e.clientY - centerY;
+            const maxR = 44;
+            const dist = Math.hypot(dx, dy);
+            const clampedDist = Math.min(dist, maxR);
+            const angle = Math.atan2(dy, dx);
+            const normX = clampedDist > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
+            const normY = clampedDist > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
+            joystickInputRef.current = { forward: -normY, turn: -normX };
+            setJoystickState({ active: true, knobX: normX * maxR, knobY: normY * maxR });
+          }}
+          onPointerMove={(e) => {
+            if (!joystickState.active) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const dx = e.clientX - centerX;
+            const dy = e.clientY - centerY;
+            const maxR = 44;
+            const dist = Math.hypot(dx, dy);
+            const clampedDist = Math.min(dist, maxR);
+            const angle = Math.atan2(dy, dx);
+            const normX = clampedDist > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
+            const normY = clampedDist > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
+            joystickInputRef.current = { forward: -normY, turn: -normX };
+            setJoystickState({ active: true, knobX: normX * maxR, knobY: normY * maxR });
+          }}
+          onPointerUp={() => {
+            joystickInputRef.current = { forward: 0, turn: 0 };
+            setJoystickState({ active: false, knobX: 0, knobY: 0 });
+          }}
+          onPointerCancel={() => {
+            joystickInputRef.current = { forward: 0, turn: 0 };
+            setJoystickState({ active: false, knobX: 0, knobY: 0 });
+          }}
         >
-          <ArrowUp className="w-4 h-4" />
-        </button>
-        <div />
-        <button
-          type="button"
-          aria-label="Turn left"
-          onPointerDown={() => setVirtualKey('left', true)}
-          onPointerUp={() => setVirtualKey('left', false)}
-          onPointerLeave={() => setVirtualKey('left', false)}
-          className="h-9 bg-[#181512]/90 border border-stone-700 text-stone-100 flex items-center justify-center active:bg-[#8A5A2B]"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Walk backward"
-          onPointerDown={() => setVirtualKey('down', true)}
-          onPointerUp={() => setVirtualKey('down', false)}
-          onPointerLeave={() => setVirtualKey('down', false)}
-          className="h-9 bg-[#181512]/90 border border-stone-700 text-stone-100 flex items-center justify-center active:bg-[#8A5A2B]"
-        >
-          <ArrowDown className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Turn right"
-          onPointerDown={() => setVirtualKey('right', true)}
-          onPointerUp={() => setVirtualKey('right', false)}
-          onPointerLeave={() => setVirtualKey('right', false)}
-          className="h-9 bg-[#181512]/90 border border-stone-700 text-stone-100 flex items-center justify-center active:bg-[#8A5A2B]"
-        >
-          <ArrowRight className="w-4 h-4" />
-        </button>
+          {/* Compass / Direction markers */}
+          <span className="absolute top-1 text-[9px] font-bold text-amber-200/80 pointer-events-none select-none">▲ সামনে</span>
+          <span className="absolute bottom-1 text-[9px] font-bold text-amber-200/80 pointer-events-none select-none">▼ পেছনে</span>
+          <span className="absolute left-1.5 text-[9px] font-bold text-amber-200/80 pointer-events-none select-none">◀</span>
+          <span className="absolute right-1.5 text-[9px] font-bold text-amber-200/80 pointer-events-none select-none">▶</span>
+
+          {/* Floating Joystick Thumb Knob */}
+          <div
+            className={`w-12 h-12 rounded-full border-2 shadow-lg flex items-center justify-center transition-transform duration-75 select-none pointer-events-none ${
+              joystickState.active
+                ? 'bg-amber-500 border-amber-200 text-stone-950 scale-110 shadow-amber-400/50'
+                : 'bg-stone-700/85 border-stone-400 text-stone-200'
+            }`}
+            style={{
+              transform: `translate(${joystickState.knobX}px, ${joystickState.knobY}px)`,
+            }}
+          >
+            <span className="text-xs font-bold pointer-events-none">🕹️</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Touch Quick Action Cluster (Bottom-Right) */}
+      <div
+        className="fixed bottom-6 right-6 z-30 md:hidden flex flex-col items-end gap-2 pointer-events-auto touch-none select-none"
+        aria-label="Mobile Action Buttons"
+      >
+        <div className="flex items-center gap-2">
+          {/* Fast Run / Sprint Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = !isMobileSprint;
+              setIsMobileSprint(next);
+              isMobileSprintRef.current = next;
+            }}
+            className={`w-11 h-11 rounded-full border shadow-lg flex items-center justify-center font-bold text-xs transition-all active:scale-90 ${
+              isMobileSprint
+                ? 'bg-amber-500 border-amber-300 text-stone-950 ring-2 ring-amber-400'
+                : 'bg-stone-900/85 border-stone-600 text-stone-200'
+            }`}
+            title="দৌড় / স্প্রিন্ট মোড"
+          >
+            🏃
+          </button>
+
+          {/* Camera View Toggle Button (1st / 3rd Person) */}
+          <button
+            type="button"
+            onClick={() => setCameraMode((prev) => (prev === 'third' ? 'first' : 'third'))}
+            className="w-11 h-11 rounded-full border border-sky-400/70 bg-stone-900/85 text-sky-200 shadow-lg flex items-center justify-center font-bold text-xs active:scale-90 transition-all"
+            title="ক্যামেরা ভিউ বদলান (1st / 3rd Person)"
+          >
+            👁️
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Action / Interact Button (E) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isRidingGondolaRef.current) {
+                exitGondolaRef.current();
+                return;
+              }
+              if (isRidingMetroRef.current) {
+                if (isSeatedOnMetroRef.current) {
+                  standUpFromMetroSeatRef.current();
+                } else {
+                  exitMetroRef.current();
+                }
+                return;
+              }
+              if (activeRideIdRef.current) {
+                exitRideRef.current();
+                return;
+              }
+              if (drivingVehicleIdRef.current) {
+                exitVehicleRef.current();
+                return;
+              }
+              if (nearbyMetroBoardable) {
+                mountMetroRef.current();
+                return;
+              }
+              if (nearbyMarketItem) {
+                setMarketSession(createMarketSession(nearbyMarketItem));
+                return;
+              }
+              const ps = playerStateRef.current;
+              if (nearbyDoor) {
+                toggleDoorByIdRef.current(nearbyDoor.id);
+                return;
+              }
+              if (nearbyGondolaCounter || (Math.hypot(ps.x - (-665), ps.z - 120.2) < 4.5 && Math.abs(ps.y - 3.8) < 2.0)) {
+                buyGondolaTicketRef.current();
+                return;
+              }
+              const bCabin = findBoardableGondola({ x: ps.x, y: ps.y, z: ps.z }, gondolaSysRef.current.cabins);
+              if (bCabin) {
+                mountGondolaRef.current(bCabin.cabinId);
+                return;
+              }
+              if (nearbyVehicle) {
+                boardOrDriveNearbyVehicle(nearbyVehicle.id);
+                return;
+              }
+              if (nearbyRide) {
+                mountRideRef.current(nearbyRide.id);
+                return;
+              }
+            }}
+            className="w-13 h-13 rounded-full border-2 border-emerald-400 bg-emerald-950/90 text-emerald-200 shadow-xl flex items-center justify-center font-bold text-xs active:scale-90 transition-all cursor-pointer"
+            title="অ্যাকশন / চড়া / কথা বলা [E]"
+          >
+            <span className="flex flex-col items-center leading-none">
+              <span className="text-sm">🚪</span>
+              <span className="text-[9px] mt-0.5">অ্যাকশন</span>
+            </span>
+          </button>
+
+          {/* Drive / Vehicle Board Button (T) */}
+          <button
+            type="button"
+            onClick={() => boardOrDriveNearbyVehicle()}
+            className="w-13 h-13 rounded-full border-2 border-amber-400 bg-amber-950/90 text-amber-200 shadow-xl flex items-center justify-center font-bold text-xs active:scale-90 transition-all cursor-pointer"
+            title="গাড়িতে উঠুন / চালান [T]"
+          >
+            <span className="flex flex-col items-center leading-none">
+              <span className="text-sm">🚗</span>
+              <span className="text-[9px] mt-0.5">ড্রাইভ</span>
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Collapsible Unified Bottom Control Dock */}

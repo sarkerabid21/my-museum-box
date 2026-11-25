@@ -500,14 +500,16 @@ function MyMuseumApp() {
           await signInWithGoogleRedirect();
         } catch (redirectErr: any) {
           console.error('Redirect sign-in error:', redirectErr);
-          showToast('ব্রাউজারের অ্যাড্রেস বার থেকে localhost:3000-এর জন্য Pop-ups allow করুন।');
+          const host = typeof window !== 'undefined' ? window.location.host : 'localhost';
+          showToast(`ব্রাউজারের অ্যাড্রেস বার থেকে ${host}-এর জন্য Pop-ups allow করুন।`);
         }
         return;
       }
 
       if (code === 'auth/unauthorized-domain') {
+        const curDomain = typeof window !== 'undefined' ? window.location.hostname : 'my-museum-box.vercel.app';
         showToast(
-          'Firebase Unauthorized Domain! Firebase Console > Authentication > Settings > Authorized domains-এ "localhost" যোগ করুন।'
+          `Firebase Unauthorized Domain! Firebase Console > Authentication > Settings > Authorized domains-এ "${curDomain}" ডোমেইনটি যোগ করুন।`
         );
         return;
       }
