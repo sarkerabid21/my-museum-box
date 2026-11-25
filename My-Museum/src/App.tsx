@@ -892,7 +892,10 @@ function MyMuseumApp() {
     renameRoomIndex !== null ||
     Boolean(inspectState.artwork);
 
-  const safeAvatar = enforceAccountAvatarPolicy(avatar, user?.email);
+  const safeAvatar = useMemo(
+    () => enforceAccountAvatarPolicy(avatar, user?.email),
+    [avatar, user?.email]
+  );
 
   return (
     <div data-view={view}>

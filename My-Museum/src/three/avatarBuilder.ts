@@ -943,7 +943,7 @@ function buildAbidSignatureRig(
     const pivot = new THREE.Group();
     pivot.position.set(side * hipSpread, hipY, 0);
 
-    // Thigh (tailored chino from hip y=0 down to knee y=-0.42)
+    // Thigh (tailored chino)
     const thigh = new THREE.Mesh(
       trackGeo(new THREE.CylinderGeometry(0.080, 0.065, 0.42, 16)),
       chinoMat
@@ -952,79 +952,64 @@ function buildAbidSignatureRig(
     thigh.castShadow = true;
     pivot.add(thigh);
 
-    // Articulated knee pivot located at y = -0.42
-    const kneePivot = new THREE.Group();
-    kneePivot.position.set(0, -0.42, 0);
-    pivot.add(kneePivot);
-
-    // Subtle sculpted knee cap
-    const kneeCap = new THREE.Mesh(
-      trackGeo(new THREE.SphereGeometry(0.052, 12, 10)),
-      chinoMat
-    );
-    kneeCap.scale.set(0.95, 1.05, 0.82);
-    kneeCap.position.set(0, 0, 0.012);
-    kneeCap.castShadow = true;
-    kneePivot.add(kneeCap);
-
-    // Calf / tapered lower chino (from y=0 to y=-0.36 in kneePivot)
+    // Calf / tapered lower chino
     const calf = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.063, 0.049, 0.36, 16)),
+      trackGeo(new THREE.CylinderGeometry(0.063, 0.049, 0.37, 16)),
       chinoMat
     );
-    calf.position.y = -0.18;
+    calf.position.y = -0.585;
     calf.castShadow = true;
-    kneePivot.add(calf);
+    pivot.add(calf);
 
     // Subtle ankle cuff roll
     const ankleHem = new THREE.Mesh(
       trackGeo(new THREE.CylinderGeometry(0.052, 0.051, 0.032, 16)),
       chinoMat
     );
-    ankleHem.position.y = -0.36;
-    kneePivot.add(ankleHem);
+    ankleHem.position.y = -0.765;
+    pivot.add(ankleHem);
 
     // Bare ankle bridge into sneaker collar
     const ankle = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.041, 0.039, 0.042, 12)),
+      trackGeo(new THREE.CylinderGeometry(0.041, 0.039, 0.045, 12)),
       skinMat
     );
-    ankle.position.y = -0.385;
-    kneePivot.add(ankle);
+    ankle.position.y = -0.79;
+    pivot.add(ankle);
 
-    // Crisp off-white rubber sneaker outsole (sole bottom at y = -0.46 in kneePivot, flush with floor at y=0)
+    // Crisp off-white rubber sneaker outsole (flush at y = 0 -> local -hipY)
     const soleBase = new THREE.Mesh(
       trackGeo(new THREE.BoxGeometry(0.114, 0.026, 0.245)),
       sneakerSoleMat
     );
-    soleBase.position.set(0, -0.46 + 0.013, 0.05);
+    soleBase.position.set(0, -hipY + 0.013, 0.05);
     soleBase.castShadow = true;
-    kneePivot.add(soleBase);
+    pivot.add(soleBase);
 
     const soleToe = new THREE.Mesh(
       trackGeo(new THREE.CylinderGeometry(0.056, 0.057, 0.026, 14)),
       sneakerSoleMat
     );
-    soleToe.position.set(0, -0.46 + 0.013, 0.168);
-    kneePivot.add(soleToe);
+    soleToe.position.set(0, -hipY + 0.013, 0.168);
+    pivot.add(soleToe);
 
     // Dark charcoal sneaker upper
     const shoeUpper = new THREE.Mesh(
       trackGeo(new THREE.BoxGeometry(0.106, 0.064, 0.215)),
       sneakerUpperMat
     );
-    shoeUpper.position.set(0, -0.46 + 0.056, 0.042);
+    shoeUpper.position.set(0, -hipY + 0.056, 0.042);
     shoeUpper.castShadow = true;
-    kneePivot.add(shoeUpper);
+    pivot.add(shoeUpper);
 
     const shoeToe = new THREE.Mesh(
       trackGeo(new THREE.SphereGeometry(0.054, 14, 12)),
       sneakerUpperMat
     );
     shoeToe.scale.set(0.98, 0.68, 1.18);
-    shoeToe.position.set(0, -0.46 + 0.048, 0.148);
+    shoeToe.position.set(0, -hipY + 0.048, 0.148);
     shoeToe.castShadow = true;
-    kneePivot.add(shoeToe);
+    pivot.add(shoeToe);
 
     // Crisp lace / tongue highlight
     for (let i = 0; i < 3; i++) {
@@ -1032,21 +1017,17 @@ function buildAbidSignatureRig(
         trackGeo(new THREE.BoxGeometry(0.042, 0.006, 0.009)),
         sneakerSoleMat
       );
-      lace.position.set(0, -0.46 + 0.088 - i * 0.008, 0.095 + i * 0.024);
+      lace.position.set(0, -hipY + 0.088 - i * 0.008, 0.095 + i * 0.024);
       lace.rotation.x = 0.25;
-      kneePivot.add(lace);
+      pivot.add(lace);
     }
 
     bodyGroup.add(pivot);
-    return { pivot, kneePivot };
+    return pivot;
   };
 
-  const leftLeg = makeLeg(-1);
-  const rightLeg = makeLeg(1);
-  const leftLegPivot = leftLeg.pivot;
-  const rightLegPivot = rightLeg.pivot;
-  const leftKneePivot = leftLeg.kneePivot;
-  const rightKneePivot = rightLeg.kneePivot;
+  const leftLegPivot = makeLeg(-1);
+  const rightLegPivot = makeLeg(1);
 
   // --- PELVIS (Ivory chino seat seamlessly tucked under untucked shirt hem) ---
   const pelvis = new THREE.Mesh(
@@ -1505,8 +1486,6 @@ function buildAbidSignatureRig(
     rightArmPivot,
     leftLegPivot,
     rightLegPivot,
-    leftKneePivot,
-    rightKneePivot,
     leftForearmPivot,
     rightForearmPivot,
     stridePhase: 0,

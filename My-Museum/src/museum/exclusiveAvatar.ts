@@ -55,6 +55,13 @@ export function enforceAccountAvatarPolicy(
   userEmail?: string | null
 ): AvatarConfig {
   if (isExclusiveAbidAccount(userEmail)) {
+    if (
+      avatar.outfitStyle === ABID_SIGNATURE_STYLE &&
+      avatar.hairStyle === ABID_SIGNATURE_STYLE &&
+      (avatar.displayName?.trim() || 'Ashfaq Sarker Abid') === avatar.displayName
+    ) {
+      return avatar;
+    }
     return getAbidSignatureAvatar(avatar.displayName);
   }
 

@@ -425,6 +425,8 @@ export function Museum3DView({
   const builtAmusementRef = useRef<BuiltAmusementParks | null>(null);
   const interactablesRef = useRef<THREE.Object3D[]>([]);
   const playerRigRef = useRef<AvatarRig | null>(null);
+  const prevPlayerVisualSignatureRef = useRef<string>('');
+  const prevPlayerGlbBufferRef = useRef<ArrayBuffer | null>(null);
   const playerSlotRef = useRef<THREE.Group | null>(null);
   const companionsSlotRef = useRef<THREE.Group | null>(null);
 
@@ -3306,6 +3308,8 @@ export function Museum3DView({
       builtAmusementRef.current = null;
       playerRigRef.current?.dispose();
       playerRigRef.current = null;
+      prevPlayerVisualSignatureRef.current = '';
+      prevPlayerGlbBufferRef.current = null;
       companionRigsRef.current.forEach((c) => c.rig.dispose());
       companionRigsRef.current.clear();
       envTex?.dispose();
@@ -3412,6 +3416,18 @@ export function Museum3DView({
   useEffect(() => {
     const slot = playerSlotRef.current;
     if (!slot) return;
+
+    const visualSignature = `${avatar.displayName ?? ''}|${avatar.gender}|${avatar.skinTone}|${avatar.hairStyle}|${avatar.hairColor}|${avatar.outfitStyle}|${avatar.outfitColor}|${avatar.accentColor}|${avatar.accessory}`;
+    if (
+      playerRigRef.current &&
+      prevPlayerVisualSignatureRef.current === visualSignature &&
+      prevPlayerGlbBufferRef.current === customGlbBuffer
+    ) {
+      return;
+    }
+    prevPlayerVisualSignatureRef.current = visualSignature;
+    prevPlayerGlbBufferRef.current = customGlbBuffer;
+
     let cancelled = false;
 
     const mountRig = (rig: AvatarRig) => {
