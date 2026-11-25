@@ -2497,8 +2497,6 @@ export function Museum3DView({
           playerRig.root.position.set(ps.x, groundY, ps.z);
           playerRig.root.rotation.y = ps.yaw;
           playerRig.root.visible = cameraModeRef.current === 'third';
-          playerRig.bodyGroup.rotation.set(0, 0, 0);
-          playerRig.bodyGroup.position.set(0, 0, 0);
           playerRig.headGroup.rotation.set(0, 0, 0);
           playerRig.leftLegPivot.rotation.y = 0;
           playerRig.leftLegPivot.rotation.z = 0;
@@ -2837,8 +2835,6 @@ export function Museum3DView({
             ridingCompanionUidRef.current = null;
             setRidingCompanionName(null);
           }
-          entry.rig.bodyGroup.position.set(0, 0, 0);
-          entry.rig.bodyGroup.rotation.set(0, 0, 0);
           entry.rig.headGroup.rotation.set(0, 0, 0);
           entry.rig.leftLegPivot.rotation.y = 0;
           entry.rig.leftLegPivot.rotation.z = 0;

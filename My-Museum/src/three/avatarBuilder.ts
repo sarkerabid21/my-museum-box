@@ -16,6 +16,10 @@ export interface AvatarRig {
   rightArmPivot: THREE.Group;
   leftLegPivot: THREE.Group;
   rightLegPivot: THREE.Group;
+  leftKneePivot?: THREE.Group;
+  rightKneePivot?: THREE.Group;
+  leftForearmPivot?: THREE.Group;
+  rightForearmPivot?: THREE.Group;
   stridePhase: number;
   maxLegSwing: number;
   mixer?: THREE.AnimationMixer;
@@ -939,73 +943,88 @@ function buildAbidSignatureRig(
     const pivot = new THREE.Group();
     pivot.position.set(side * hipSpread, hipY, 0);
 
-    // Thigh (tailored chino)
+    // Thigh (tailored chino from hip y=0 down to knee y=-0.42)
     const thigh = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.084, 0.068, 0.43, 16)),
+      trackGeo(new THREE.CylinderGeometry(0.080, 0.065, 0.42, 16)),
       chinoMat
     );
     thigh.position.y = -0.21;
     thigh.castShadow = true;
     pivot.add(thigh);
 
-    // Calf / tapered lower chino
-    const calf = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.066, 0.052, 0.37, 16)),
+    // Articulated knee pivot located at y = -0.42
+    const kneePivot = new THREE.Group();
+    kneePivot.position.set(0, -0.42, 0);
+    pivot.add(kneePivot);
+
+    // Subtle sculpted knee cap
+    const kneeCap = new THREE.Mesh(
+      trackGeo(new THREE.SphereGeometry(0.052, 12, 10)),
       chinoMat
     );
-    calf.position.y = -0.585;
+    kneeCap.scale.set(0.95, 1.05, 0.82);
+    kneeCap.position.set(0, 0, 0.012);
+    kneeCap.castShadow = true;
+    kneePivot.add(kneeCap);
+
+    // Calf / tapered lower chino (from y=0 to y=-0.36 in kneePivot)
+    const calf = new THREE.Mesh(
+      trackGeo(new THREE.CylinderGeometry(0.063, 0.049, 0.36, 16)),
+      chinoMat
+    );
+    calf.position.y = -0.18;
     calf.castShadow = true;
-    pivot.add(calf);
+    kneePivot.add(calf);
 
     // Subtle ankle cuff roll
     const ankleHem = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.055, 0.054, 0.032, 16)),
+      trackGeo(new THREE.CylinderGeometry(0.052, 0.051, 0.032, 16)),
       chinoMat
     );
-    ankleHem.position.y = -0.765;
-    pivot.add(ankleHem);
+    ankleHem.position.y = -0.36;
+    kneePivot.add(ankleHem);
 
     // Bare ankle bridge into sneaker collar
     const ankle = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.042, 0.04, 0.045, 12)),
+      trackGeo(new THREE.CylinderGeometry(0.041, 0.039, 0.042, 12)),
       skinMat
     );
-    ankle.position.y = -0.79;
-    pivot.add(ankle);
+    ankle.position.y = -0.385;
+    kneePivot.add(ankle);
 
-    // Crisp off-white rubber sneaker outsole (flush at y = 0 -> local -hipY)
+    // Crisp off-white rubber sneaker outsole (sole bottom at y = -0.46 in kneePivot, flush with floor at y=0)
     const soleBase = new THREE.Mesh(
       trackGeo(new THREE.BoxGeometry(0.114, 0.026, 0.245)),
       sneakerSoleMat
     );
-    soleBase.position.set(0, -hipY + 0.013, 0.05);
+    soleBase.position.set(0, -0.46 + 0.013, 0.05);
     soleBase.castShadow = true;
-    pivot.add(soleBase);
+    kneePivot.add(soleBase);
 
     const soleToe = new THREE.Mesh(
       trackGeo(new THREE.CylinderGeometry(0.056, 0.057, 0.026, 14)),
       sneakerSoleMat
     );
-    soleToe.position.set(0, -hipY + 0.013, 0.168);
-    pivot.add(soleToe);
+    soleToe.position.set(0, -0.46 + 0.013, 0.168);
+    kneePivot.add(soleToe);
 
     // Dark charcoal sneaker upper
     const shoeUpper = new THREE.Mesh(
       trackGeo(new THREE.BoxGeometry(0.106, 0.064, 0.215)),
       sneakerUpperMat
     );
-    shoeUpper.position.set(0, -hipY + 0.056, 0.042);
+    shoeUpper.position.set(0, -0.46 + 0.056, 0.042);
     shoeUpper.castShadow = true;
-    pivot.add(shoeUpper);
+    kneePivot.add(shoeUpper);
 
     const shoeToe = new THREE.Mesh(
       trackGeo(new THREE.SphereGeometry(0.054, 14, 12)),
       sneakerUpperMat
     );
     shoeToe.scale.set(0.98, 0.68, 1.18);
-    shoeToe.position.set(0, -hipY + 0.048, 0.148);
+    shoeToe.position.set(0, -0.46 + 0.048, 0.148);
     shoeToe.castShadow = true;
-    pivot.add(shoeToe);
+    kneePivot.add(shoeToe);
 
     // Crisp lace / tongue highlight
     for (let i = 0; i < 3; i++) {
@@ -1013,21 +1032,25 @@ function buildAbidSignatureRig(
         trackGeo(new THREE.BoxGeometry(0.042, 0.006, 0.009)),
         sneakerSoleMat
       );
-      lace.position.set(0, -hipY + 0.088 - i * 0.008, 0.095 + i * 0.024);
+      lace.position.set(0, -0.46 + 0.088 - i * 0.008, 0.095 + i * 0.024);
       lace.rotation.x = 0.25;
-      pivot.add(lace);
+      kneePivot.add(lace);
     }
 
     bodyGroup.add(pivot);
-    return pivot;
+    return { pivot, kneePivot };
   };
 
-  const leftLegPivot = makeLeg(-1);
-  const rightLegPivot = makeLeg(1);
+  const leftLeg = makeLeg(-1);
+  const rightLeg = makeLeg(1);
+  const leftLegPivot = leftLeg.pivot;
+  const rightLegPivot = rightLeg.pivot;
+  const leftKneePivot = leftLeg.kneePivot;
+  const rightKneePivot = rightLeg.kneePivot;
 
   // --- PELVIS (Ivory chino seat seamlessly tucked under untucked shirt hem) ---
   const pelvis = new THREE.Mesh(
-    trackGeo(new THREE.CylinderGeometry(0.184, 0.18, 0.17, 18)),
+    trackGeo(new THREE.CylinderGeometry(0.180, 0.176, 0.17, 18)),
     chinoMat
   );
   pelvis.scale.set(1.04, 1, 0.72);
@@ -1036,10 +1059,10 @@ function buildAbidSignatureRig(
   bodyGroup.add(pelvis);
 
   // --- TORSO: Seamless LatheGeometry Untucked Burgundy & Deep-Indigo Plaid Button-Down Shirt ---
-  // Single smooth profile from curved shirt-tail hem -> waist -> chest -> sloped shoulders (zero seam/z-fighting!)
+  // Calibrated profile: hem sits at y = 0.865 (above knee & hip rotation line) preventing thigh clipping
   const shirtProfile = [
-    new THREE.Vector2(0.204, 0.835), // untucked shirt hem bottom
-    new THREE.Vector2(0.198, 0.91),
+    new THREE.Vector2(0.205, 0.865), // untucked shirt hem bottom
+    new THREE.Vector2(0.200, 0.93),
     new THREE.Vector2(0.196, 1.03),
     new THREE.Vector2(0.214, 1.24),
     new THREE.Vector2(0.228, 1.38),
@@ -1106,7 +1129,7 @@ function buildAbidSignatureRig(
 
   // --- ARMS: Rolled-Up 3/4 Plaid Sleeves + Bare Forearms + Left Wristwatch ---
   const shoulderY = 1.398;
-  const shoulderX = 0.236;
+  const shoulderX = 0.252; // calibrated from 0.236 to ensure arms clear the torso silhouette cleanly
 
   const makeArm = (side: -1 | 1) => {
     const pivot = new THREE.Group();
@@ -1121,84 +1144,93 @@ function buildAbidSignatureRig(
     cap.castShadow = true;
     pivot.add(cap);
 
-    // Upper sleeve (plaid, extending down to elbow)
+    // Upper sleeve (plaid, extending down to elbow at y = -0.265)
     const upperSleeve = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.058, 0.051, 0.265, 14)),
+      trackGeo(new THREE.CylinderGeometry(0.056, 0.049, 0.265, 14)),
       sleeveMat
     );
     upperSleeve.position.y = -0.132;
     upperSleeve.castShadow = true;
     pivot.add(upperSleeve);
 
+    // Articulated forearm pivot located at elbow (y = -0.265)
+    const forearmPivot = new THREE.Group();
+    forearmPivot.position.set(0, -0.265, 0);
+    pivot.add(forearmPivot);
+
     // Rolled-up plaid cuff band right below elbow
     const rolledCuff = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.055, 0.053, 0.052, 14)),
+      trackGeo(new THREE.CylinderGeometry(0.053, 0.050, 0.052, 14)),
       sleeveMat
     );
-    rolledCuff.position.y = -0.26;
+    rolledCuff.position.y = -0.01;
     rolledCuff.castShadow = true;
-    pivot.add(rolledCuff);
+    forearmPivot.add(rolledCuff);
 
     // Bare warm golden-brown forearm
     const forearm = new THREE.Mesh(
-      trackGeo(new THREE.CylinderGeometry(0.043, 0.034, 0.25, 14)),
+      trackGeo(new THREE.CylinderGeometry(0.042, 0.033, 0.25, 14)),
       skinMat
     );
-    forearm.position.y = -0.4;
+    forearm.position.y = -0.145;
     forearm.castShadow = true;
-    pivot.add(forearm);
+    forearmPivot.add(forearm);
 
-    // Anatomical left wrist (side === +1 when facing +Z) wears dark wristwatch
+    // Anatomical left wrist (side === 1 when facing +Z) wears dark wristwatch
     if (side === 1) {
       const strap = new THREE.Mesh(
-        trackGeo(new THREE.CylinderGeometry(0.0385, 0.0375, 0.024, 14)),
+        trackGeo(new THREE.CylinderGeometry(0.0375, 0.0365, 0.024, 14)),
         watchBandMat
       );
-      strap.position.y = -0.5;
-      pivot.add(strap);
+      strap.position.y = -0.245;
+      forearmPivot.add(strap);
 
       const watchCase = new THREE.Mesh(
         trackGeo(new THREE.CylinderGeometry(0.02, 0.02, 0.012, 14)),
         watchBezelMat
       );
       watchCase.rotation.z = Math.PI / 2;
-      watchCase.position.set(0.036, -0.5, 0.01);
-      pivot.add(watchCase);
+      watchCase.position.set(0.036, -0.245, 0.01);
+      forearmPivot.add(watchCase);
 
       const watchDial = new THREE.Mesh(
         trackGeo(new THREE.CylinderGeometry(0.016, 0.016, 0.0135, 14)),
         watchDialMat
       );
       watchDial.rotation.z = Math.PI / 2;
-      watchDial.position.set(0.037, -0.5, 0.01);
-      pivot.add(watchDial);
+      watchDial.position.set(0.037, -0.245, 0.01);
+      forearmPivot.add(watchDial);
     }
 
     // Sculpted hand & thumb
     const hand = new THREE.Mesh(
-      trackGeo(new THREE.SphereGeometry(0.042, 12, 10)),
+      trackGeo(new THREE.SphereGeometry(0.041, 12, 10)),
       skinMat
     );
     hand.scale.set(0.82, 1.18, 0.68);
-    hand.position.y = -0.57;
+    hand.position.y = -0.315;
     hand.castShadow = true;
-    pivot.add(hand);
+    forearmPivot.add(hand);
 
     const thumb = new THREE.Mesh(
       trackGeo(new THREE.CylinderGeometry(0.011, 0.01, 0.042, 8)),
       skinMat
     );
-    thumb.position.set(-side * 0.028, -0.55, 0.022);
+    thumb.position.set(-side * 0.028, -0.295, 0.022);
     thumb.rotation.z = side * 0.35;
     thumb.rotation.x = 0.25;
-    pivot.add(thumb);
+    forearmPivot.add(thumb);
 
     bodyGroup.add(pivot);
-    return pivot;
+    return { pivot, forearmPivot };
   };
 
-  const leftArmPivot = makeArm(-1);
-  const rightArmPivot = makeArm(1);
+  const leftArm = makeArm(-1);
+  const rightArm = makeArm(1);
+  const leftArmPivot = leftArm.pivot;
+  const rightArmPivot = rightArm.pivot;
+  const leftForearmPivot = leftArm.forearmPivot;
+  const rightForearmPivot = rightArm.forearmPivot;
 
   // --- NECK, HEAD, BEARD/MOUSTACHE, HAIR & ROSE-SILVER GLASSES ---
   const headGroup = new THREE.Group();
@@ -1473,8 +1505,12 @@ function buildAbidSignatureRig(
     rightArmPivot,
     leftLegPivot,
     rightLegPivot,
+    leftKneePivot,
+    rightKneePivot,
+    leftForearmPivot,
+    rightForearmPivot,
     stridePhase: 0,
-    maxLegSwing: 0.48,
+    maxLegSwing: 0.38,
     dispose: () => {
       for (const item of disposables) {
         item.dispose();
@@ -1693,23 +1729,66 @@ export function animateAvatarRig(
   }
 
   if (isMoving) {
-    rig.stridePhase += clampedDelta * Math.min(11, 5.2 + speed * 1.15);
-    const swing = Math.sin(rig.stridePhase) * rig.maxLegSwing;
-    const armSwing = Math.sin(rig.stridePhase) * 0.38;
-    const bob = Math.abs(Math.cos(rig.stridePhase)) * 0.028;
+    // Natural human cadence: ~1.8 to 2.2 steps/sec calibrated to walking speed
+    rig.stridePhase += clampedDelta * Math.min(8.8, 3.8 + speed * 0.68);
+    const maxSwing = Math.min(0.38, rig.maxLegSwing);
+    const swing = Math.sin(rig.stridePhase) * maxSwing;
+    const armSwing = Math.sin(rig.stridePhase) * 0.32;
+    const bob = Math.abs(Math.sin(rig.stridePhase)) * 0.022;
+    const swayZ = Math.sin(rig.stridePhase) * 0.016;
+    const forwardLean = Math.min(0.045, 0.018 + speed * 0.005);
 
+    // Natural hip rotation
     rig.leftLegPivot.rotation.x += (swing - rig.leftLegPivot.rotation.x) * damping;
     rig.rightLegPivot.rotation.x += (-swing - rig.rightLegPivot.rotation.x) * damping;
+
+    // Natural knee articulation: bends backward when leg swings forward, straightens when planting
+    const leftKneeBend = Math.max(0, -swing) * 0.85;
+    const rightKneeBend = Math.max(0, swing) * 0.85;
+    if (rig.leftKneePivot) {
+      rig.leftKneePivot.rotation.x += (leftKneeBend - rig.leftKneePivot.rotation.x) * damping;
+    }
+    if (rig.rightKneePivot) {
+      rig.rightKneePivot.rotation.x += (rightKneeBend - rig.rightKneePivot.rotation.x) * damping;
+    }
+
+    // Natural arm swing with relaxed elbow flex
     rig.leftArmPivot.rotation.x += (-armSwing - rig.leftArmPivot.rotation.x) * damping;
     rig.rightArmPivot.rotation.x += (armSwing - rig.rightArmPivot.rotation.x) * damping;
+    const leftElbowBend = 0.12 + Math.abs(armSwing) * 0.28;
+    const rightElbowBend = 0.12 + Math.abs(armSwing) * 0.28;
+    if (rig.leftForearmPivot) {
+      rig.leftForearmPivot.rotation.x += (leftElbowBend - rig.leftForearmPivot.rotation.x) * damping;
+    }
+    if (rig.rightForearmPivot) {
+      rig.rightForearmPivot.rotation.x += (rightElbowBend - rig.rightForearmPivot.rotation.x) * damping;
+    }
+
+    // Organic torso locomotion: vertical bob, gentle lateral pelvic sway, slight forward lean
     rig.bodyGroup.position.y += (bob - rig.bodyGroup.position.y) * damping;
+    rig.bodyGroup.rotation.z += (swayZ - rig.bodyGroup.rotation.z) * damping;
+    rig.bodyGroup.rotation.x += (forwardLean - rig.bodyGroup.rotation.x) * damping;
   } else {
-    const breathe = standStill ? 0 : Math.sin(elapsed * 2.1) * 0.008;
-    const armIdle = standStill ? 0 : 0.04 * Math.sin(elapsed * 1.4);
+    const breathe = standStill ? 0 : Math.sin(elapsed * 2.1) * 0.006;
+    const armIdle = standStill ? 0 : 0.035 * Math.sin(elapsed * 1.4);
     rig.leftLegPivot.rotation.x += (0 - rig.leftLegPivot.rotation.x) * damping;
     rig.rightLegPivot.rotation.x += (0 - rig.rightLegPivot.rotation.x) * damping;
+    if (rig.leftKneePivot) {
+      rig.leftKneePivot.rotation.x += (0 - rig.leftKneePivot.rotation.x) * damping;
+    }
+    if (rig.rightKneePivot) {
+      rig.rightKneePivot.rotation.x += (0 - rig.rightKneePivot.rotation.x) * damping;
+    }
     rig.leftArmPivot.rotation.x += (armIdle - rig.leftArmPivot.rotation.x) * damping;
     rig.rightArmPivot.rotation.x += (-armIdle - rig.rightArmPivot.rotation.x) * damping;
+    if (rig.leftForearmPivot) {
+      rig.leftForearmPivot.rotation.x += (0.08 - rig.leftForearmPivot.rotation.x) * damping;
+    }
+    if (rig.rightForearmPivot) {
+      rig.rightForearmPivot.rotation.x += (0.08 - rig.rightForearmPivot.rotation.x) * damping;
+    }
     rig.bodyGroup.position.y += (breathe - rig.bodyGroup.position.y) * damping;
+    rig.bodyGroup.rotation.z += (0 - rig.bodyGroup.rotation.z) * damping;
+    rig.bodyGroup.rotation.x += (0 - rig.bodyGroup.rotation.x) * damping;
   }
 }
