@@ -54,6 +54,47 @@ describe('Outdoor World Exit Door, Collision & Minimap Zones', () => {
     assert.ok(ctgPt.mx < museumPt.mx && museumPt.mx < coxsPt.mx, 'CTG west < Museum center < COXS east');
     assert.ok(museumPt.my < ctgPt.my, 'Museum north of highway on minimap');
   });
+
+  it('keeps player inside Grand Cross Hall (Room 3) wings to view wall artworks without being ejected outside', () => {
+    // 3 rooms: Room 1 (8), Room 2 (8), Room 3 (Cross Hall, 18 works) -> total 34
+    const layout = calculateMuseumLayout(24);
+    const crossHall = layout.rooms[2];
+    assert.ok(crossHall.isCrossHall, 'Room 3 must be a Grand Cross Hall');
+
+    // Cross Hall center is around z = -41
+    const centerZ = crossHall.centerZ;
+    const allDoorsOpen = new Set(layout.doors.map((d) => d.id));
+
+    // Player walks deep into the West Wing (x = -15.4) to examine wall artworks
+    const westWingWalk = clampWorldPosition(-15.4, centerZ, layout, allDoorsOpen, centerZ, -14.0);
+    assert.ok(
+      Math.abs(westWingWalk.x - (-15.4)) < 0.5,
+      `Player in West Wing must stay near x = -15.4, got ${westWingWalk.x}`
+    );
+    assert.ok(
+      Math.abs(westWingWalk.z - centerZ) < 1.0,
+      `Player must stay deep inside Room 3 (near ${centerZ}), never ejected to outdoor z=1.8! Got ${westWingWalk.z}`
+    );
+
+    // Player walks deep into the East Wing (x = +15.4)
+    const eastWingWalk = clampWorldPosition(15.4, centerZ, layout, allDoorsOpen, centerZ, 14.0);
+    assert.ok(
+      Math.abs(eastWingWalk.x - 15.4) < 0.5,
+      `Player in East Wing must stay near x = 15.4, got ${eastWingWalk.x}`
+    );
+    assert.ok(
+      Math.abs(eastWingWalk.z - centerZ) < 1.0,
+      `Player must stay deep inside Room 3, never ejected outside! Got ${eastWingWalk.z}`
+    );
+
+    // Walking right up to the far West end wall (x = -18.0)
+    const farEndWalk = clampWorldPosition(-18.0, centerZ, layout, allDoorsOpen, centerZ, -17.0);
+    assert.ok(farEndWalk.x <= -17.0, `Player must be able to approach the far West wall, got ${farEndWalk.x}`);
+    assert.ok(
+      Math.abs(farEndWalk.z - centerZ) < 1.0,
+      `Player at far West wall must stay in Room 3, got ${farEndWalk.z}`
+    );
+  });
 });
 
 describe('Traffic Vehicles, Fare Bargaining, Chintai & Driving Kinematics', () => {

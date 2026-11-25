@@ -631,6 +631,36 @@ export function getArtworkPlacement(index: number): ArtworkPlacement {
 }
 
 /**
+ * Checks whether a 2D world coordinate (x, z) lies within the architectural footprint
+ * of the multi-room museum (including cruciform Cross-Hall transept wings).
+ */
+export function isInsideMuseumFootprint(
+  x: number,
+  z: number,
+  layout: MuseumLayout,
+  buffer = 0.85
+): boolean {
+  if (z > layout.southWallZ + buffer || z < layout.northWallZ - buffer) {
+    return false;
+  }
+  for (const room of layout.rooms) {
+    if (z <= room.southZ + buffer && z >= room.northZ - buffer) {
+      if (!room.isCrossHall) {
+        if (Math.abs(x) <= ROOM_HALF_WIDTH + buffer) return true;
+      } else {
+        if (Math.abs(x) <= ROOM_HALF_WIDTH + buffer) return true;
+        const wingMinZ = room.centerZ - room.wingHalfDepth - buffer;
+        const wingMaxZ = room.centerZ + room.wingHalfDepth + buffer;
+        if (z >= wingMinZ && z <= wingMaxZ && Math.abs(x) <= room.wingHalfWidth + buffer) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Returns the 0-based room index containing world coordinate Z.
  */
 export function getRoomIndexAtZ(z: number, layout: MuseumLayout): number {

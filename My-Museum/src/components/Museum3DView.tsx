@@ -285,6 +285,7 @@ export function Museum3DView({
     yaw: Math.PI,
     vehicles: [],
   }));
+  const lastSnapPosRef = useRef({ x: 0, z: 4.5, yaw: Math.PI });
   const [nearbyVehicle, setNearbyVehicle] = useState<{
     id: string;
     title: string;
@@ -523,15 +524,8 @@ export function Museum3DView({
   const joystickInputRef = useRef<{ forward: number; turn: number }>({ forward: 0, turn: 0 });
   const isMobileSprintRef = useRef<boolean>(false);
   const [isMobileSprint, setIsMobileSprint] = useState<boolean>(false);
-  const [joystickState, setJoystickState] = useState<{
-    active: boolean;
-    knobX: number;
-    knobY: number;
-  }>({
-    active: false,
-    knobX: 0,
-    knobY: 0,
-  });
+  const joystickKnobRef = useRef<HTMLDivElement | null>(null);
+  const [joystickActive, setJoystickActive] = useState<boolean>(false);
 
   const toggleDoorById = useCallback((doorId: string) => {
     const next = new Set(openDoorIdsRef.current);
@@ -1365,7 +1359,7 @@ export function Museum3DView({
     const width = Math.max(320, container.clientWidth);
     const height = Math.max(320, container.clientHeight);
     renderer.setSize(width, height);
-    renderer.setPixelRatio(isSoftwareGl ? 0.65 : Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(isSoftwareGl ? 0.65 : Math.min(window.devicePixelRatio, 1.75));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.94;
@@ -1706,11 +1700,10 @@ export function Museum3DView({
         moveStartY = e.clientY;
         dragMoved = false;
         joystickInputRef.current = { forward: 0, turn: 0 };
-        setJoystickState({
-          active: true,
-          knobX: 0,
-          knobY: 0,
-        });
+        setJoystickActive(true);
+        if (joystickKnobRef.current) {
+          joystickKnobRef.current.style.transform = 'translate(0px, 0px)';
+        }
       } else {
         // Right-side touch on mobile or mouse anywhere -> Camera Look & Interact
         lookPointerId = e.pointerId;
@@ -1741,11 +1734,9 @@ export function Museum3DView({
           forward: -normY,
           turn: -normX,
         };
-        setJoystickState({
-          active: true,
-          knobX: normX * maxR,
-          knobY: normY * maxR,
-        });
+        if (joystickKnobRef.current) {
+          joystickKnobRef.current.style.transform = `translate(${normX * maxR}px, ${normY * maxR}px)`;
+        }
         return;
       }
 
@@ -1907,7 +1898,10 @@ export function Museum3DView({
       if (e.pointerId === movePointerId) {
         movePointerId = null;
         joystickInputRef.current = { forward: 0, turn: 0 };
-        setJoystickState({ active: false, knobX: 0, knobY: 0 });
+        setJoystickActive(false);
+        if (joystickKnobRef.current) {
+          joystickKnobRef.current.style.transform = 'translate(0px, 0px)';
+        }
       }
       if (e.pointerId === lookPointerId || lookPointerId === null) {
         lookPointerId = null;
@@ -2028,7 +2022,10 @@ export function Museum3DView({
       if (e.pointerId === movePointerId) {
         movePointerId = null;
         joystickInputRef.current = { forward: 0, turn: 0 };
-        setJoystickState({ active: false, knobX: 0, knobY: 0 });
+        setJoystickActive(false);
+        if (joystickKnobRef.current) {
+          joystickKnobRef.current.style.transform = 'translate(0px, 0px)';
+        }
       }
       if (e.pointerId === lookPointerId) {
         lookPointerId = null;
@@ -2177,13 +2174,6 @@ export function Museum3DView({
         }
       }
 
-      setIsInKashmirZone(ps.x <= -430);
-      setIsInCtgZone(ps.x <= -45 && ps.x > -430);
-      const bCabin = findBoardableGondola({ x: ps.x, y: ps.y, z: ps.z }, gondolaSysRef.current.cabins);
-      setNearbyGondolaBoardable(bCabin !== null);
-      const isNearCounter = Math.hypot(ps.x - (-665), ps.z - 120.2) < 4.5 && Math.abs(ps.y - 3.8) < 2.0;
-      setNearbyGondolaCounter(isNearCounter);
-
       if (isRidingGondolaRef.current && ridingGondolaCabinIdRef.current !== null) {
         const cabin = gondolaSysRef.current.cabins[ridingGondolaCabinIdRef.current];
         if (cabin) {
@@ -2261,7 +2251,7 @@ export function Museum3DView({
 
           const nearSeat = findNearestMetroSeat(clamped.localX, clamped.localZ, 1.4);
           nearbyMetroSeatRef.current = nearSeat;
-          setNearbyMetroSeat(nearSeat);
+          setNearbyMetroSeat((prev) => (prev?.id === nearSeat?.id ? prev : nearSeat));
         } else {
           if (forwardIn !== 0 || turnIn !== 0) {
             standUpFromMetroSeatRef.current();
@@ -3139,20 +3129,41 @@ export function Museum3DView({
         container.dataset.currentRoom = String(activeRoomIdx);
         container.dataset.zone = curZone.id;
         container.dataset.zoneSymbol = curZone.symbol;
-        setCurrentRoomIndex(activeRoomIdx);
+        setCurrentRoomIndex((prev) => (prev === activeRoomIdx ? prev : activeRoomIdx));
         setWorldZone((prev) => (prev.id === curZone.id ? prev : curZone));
-        setMinimapSnap({
-          x: ps.x,
-          z: ps.z,
-          yaw: ps.yaw,
-          vehicles: vehicles.map((v) => ({
-            id: v.id,
-            kind: v.kind,
-            x: v.x,
-            z: v.z,
-            status: v.status,
-          })),
-        });
+
+        const inKash = ps.x <= -430;
+        setIsInKashmirZone((prev) => (prev === inKash ? prev : inKash));
+
+        const inCtg = ps.x <= -45 && ps.x > -430;
+        setIsInCtgZone((prev) => (prev === inCtg ? prev : inCtg));
+
+        const bCabin = findBoardableGondola({ x: ps.x, y: ps.y, z: ps.z }, gondolaSysRef.current.cabins);
+        const canBoardGondola = bCabin !== null;
+        setNearbyGondolaBoardable((prev) => (prev === canBoardGondola ? prev : canBoardGondola));
+
+        const isNearCounter = Math.hypot(ps.x - (-665), ps.z - 120.2) < 4.5 && Math.abs(ps.y - 3.8) < 2.0;
+        setNearbyGondolaCounter((prev) => (prev === isNearCounter ? prev : isNearCounter));
+
+        const movedSnap =
+          Math.hypot(ps.x - lastSnapPosRef.current.x, ps.z - lastSnapPosRef.current.z) > 0.08 ||
+          Math.abs(shortestAngleDelta(ps.yaw, lastSnapPosRef.current.yaw)) > 0.05;
+
+        if (movedSnap) {
+          lastSnapPosRef.current = { x: ps.x, z: ps.z, yaw: ps.yaw };
+          setMinimapSnap({
+            x: ps.x,
+            z: ps.z,
+            yaw: ps.yaw,
+            vehicles: vehicles.map((v) => ({
+              id: v.id,
+              kind: v.kind,
+              x: v.x,
+              z: v.z,
+              status: v.status,
+            })),
+          });
+        }
 
         if (activeRideIdRef.current === 'ride-east-coaster') {
           setCoasterRideState({
@@ -4351,7 +4362,7 @@ export function Museum3DView({
       >
         <div
           className={`relative w-28 h-28 rounded-full border-2 transition-all duration-150 flex items-center justify-center shadow-2xl backdrop-blur-md ${
-            joystickState.active
+            joystickActive
               ? 'bg-amber-950/75 border-amber-400 scale-105 shadow-amber-500/25 ring-2 ring-amber-400/40'
               : 'bg-stone-950/60 border-stone-600/70'
           }`}
@@ -4369,10 +4380,13 @@ export function Museum3DView({
             const normX = clampedDist > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
             const normY = clampedDist > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
             joystickInputRef.current = { forward: -normY, turn: -normX };
-            setJoystickState({ active: true, knobX: normX * maxR, knobY: normY * maxR });
+            setJoystickActive(true);
+            if (joystickKnobRef.current) {
+              joystickKnobRef.current.style.transform = `translate(${normX * maxR}px, ${normY * maxR}px)`;
+            }
           }}
           onPointerMove={(e) => {
-            if (!joystickState.active) return;
+            if (!joystickActive) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const centerX = rect.left + rect.width / 2;
             const centerY = rect.top + rect.height / 2;
@@ -4385,15 +4399,23 @@ export function Museum3DView({
             const normX = clampedDist > 0 ? (Math.cos(angle) * clampedDist) / maxR : 0;
             const normY = clampedDist > 0 ? (Math.sin(angle) * clampedDist) / maxR : 0;
             joystickInputRef.current = { forward: -normY, turn: -normX };
-            setJoystickState({ active: true, knobX: normX * maxR, knobY: normY * maxR });
+            if (joystickKnobRef.current) {
+              joystickKnobRef.current.style.transform = `translate(${normX * maxR}px, ${normY * maxR}px)`;
+            }
           }}
           onPointerUp={() => {
             joystickInputRef.current = { forward: 0, turn: 0 };
-            setJoystickState({ active: false, knobX: 0, knobY: 0 });
+            setJoystickActive(false);
+            if (joystickKnobRef.current) {
+              joystickKnobRef.current.style.transform = 'translate(0px, 0px)';
+            }
           }}
           onPointerCancel={() => {
             joystickInputRef.current = { forward: 0, turn: 0 };
-            setJoystickState({ active: false, knobX: 0, knobY: 0 });
+            setJoystickActive(false);
+            if (joystickKnobRef.current) {
+              joystickKnobRef.current.style.transform = 'translate(0px, 0px)';
+            }
           }}
         >
           {/* Compass / Direction markers */}
@@ -4404,14 +4426,12 @@ export function Museum3DView({
 
           {/* Floating Joystick Thumb Knob */}
           <div
-            className={`w-12 h-12 rounded-full border-2 shadow-lg flex items-center justify-center transition-transform duration-75 select-none pointer-events-none ${
-              joystickState.active
+            ref={joystickKnobRef}
+            className={`w-12 h-12 rounded-full border-2 shadow-lg flex items-center justify-center select-none pointer-events-none ${
+              joystickActive
                 ? 'bg-amber-500 border-amber-200 text-stone-950 scale-110 shadow-amber-400/50'
                 : 'bg-stone-700/85 border-stone-400 text-stone-200'
             }`}
-            style={{
-              transform: `translate(${joystickState.knobX}px, ${joystickState.knobY}px)`,
-            }}
           >
             <span className="text-xs font-bold pointer-events-none">🕹️</span>
           </div>

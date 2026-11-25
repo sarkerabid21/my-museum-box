@@ -2,6 +2,7 @@ import {
   clampPlayerPosition,
   DOOR_WALL_BUFFER,
   DOOR_WIDTH,
+  isInsideMuseumFootprint,
   ROOM_HALF_WIDTH,
   WALL_COLLISION_MARGIN,
   type DoorDefinition,
@@ -287,11 +288,14 @@ export function clampWorldPosition(
   }
 
   const museumOuterHalfW = ROOM_HALF_WIDTH + 0.85;
+
+  // Player is inside the museum if they are in its architectural footprint (including Cross Hall wings)
+  // or North of the South exit wall (z <= layout.southWallZ)
   const wasInsideMuseum =
-    Math.abs(refX) <= museumOuterHalfW && refZ <= layout.southWallZ;
+    refZ <= layout.southWallZ &&
+    (isInsideMuseumFootprint(refX, refZ, layout, 1.2) || refZ <= layout.southWallZ - 0.2);
   const wantsOutside = z > layout.southWallZ - DOOR_WALL_BUFFER;
-  const wantsInside =
-    z < layout.southWallZ + DOOR_WALL_BUFFER && Math.abs(x) <= museumOuterHalfW;
+  const wantsInside = z < layout.southWallZ + DOOR_WALL_BUFFER;
   const inExitOpening = Math.abs(x) <= doorHalfPass;
 
   // Transition through Room 1 South Exit Door (z = 9.0)
@@ -309,7 +313,7 @@ export function clampWorldPosition(
       );
     }
     if (z <= layout.southWallZ) {
-      // Moving inside rooms (including Cross Hall wings) or approaching open exit doorway
+      // Moving inside rooms (including all Cross Hall wings) or approaching open exit doorway
       return clampPlayerPosition(
         x,
         z,
@@ -333,9 +337,8 @@ export function clampWorldPosition(
 
   // Prevent walking back through solid Museum exterior walls except via the open exit door
   const museumOuterSouthZ = layout.southWallZ + 0.75;
-  const museumOuterNorthZ = layout.northWallZ - 0.85;
 
-  if (cz < museumOuterSouthZ && Math.abs(cx) < museumOuterHalfW) {
+  if (isInsideMuseumFootprint(cx, cz, layout, 0.45)) {
     if (exitOpen && inExitOpening && wantsInside && refZ >= layout.southWallZ - 0.2) {
       // Entering back through the open museum door!
       return {
@@ -344,17 +347,15 @@ export function clampWorldPosition(
       };
     }
     // Push outside the museum exterior wall
-    if (Math.abs(refX) >= museumOuterHalfW - 0.15) {
-      cx = refX < 0 ? -museumOuterHalfW : museumOuterHalfW;
-    } else {
+    if (refZ >= museumOuterSouthZ) {
       cz = Math.max(cz, museumOuterSouthZ);
+    } else {
+      cx = refX < 0 ? -museumOuterHalfW : museumOuterHalfW;
     }
-  } else if (Math.abs(cx) < museumOuterHalfW && cz < museumOuterNorthZ) {
-    cz = museumOuterNorthZ;
   }
 
   // Keep player cleanly inside the front garden, highway & both West/East Amusement Parks flanking the museum
-  if (Math.abs(cx) >= museumOuterHalfW && cz < 1.8 && cx > -430) {
+  if (refZ >= 1.5 && Math.abs(cx) >= museumOuterHalfW && cz < 1.8 && cx > -430) {
     cz = 1.8;
   } else if (cx <= -430) {
     cz = Math.min(205.0, Math.max(-25.0, cz));
