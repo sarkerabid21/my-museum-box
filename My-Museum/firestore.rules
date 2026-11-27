@@ -73,7 +73,10 @@ service cloud.firestore {
       return isSignedIn() && (
         mData.ownerId == request.auth.uid ||
         mData.isOpenByCode == true ||
-        (hasVerifiedEmail() && request.auth.token.email in mData.memberEmails) ||
+        (hasVerifiedEmail() && (
+          request.auth.token.email in mData.memberEmails ||
+          request.auth.token.email in mData.curatorEmails
+        )) ||
         (isAbidPrimaryOwner(mData.ownerId) && isAbidTrustedCircleVisitor())
       );
     }
@@ -199,7 +202,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'museumId', 'ownerId', 'uid', 'displayName', 'gender', 'skinTone', 'hairStyle',
           'hairColor', 'outfitStyle', 'outfitColor', 'accentColor', 'accessory',
-          'x', 'z', 'yaw', 'isOnline', 'memberKey', 'isOpenByCode', 'viewerEmails', 'updatedAt'
+          'x', 'z', 'yaw', 'isOnline', 'memberKey', 'isOpenByCode', 'viewerEmails', 'updatedAt',
+          'ridingRideId', 'ridingVehicleId'
         ])
         && data.museumId == museumId
         && isValidId(data.museumId)
@@ -215,11 +219,13 @@ service cloud.firestore {
         && isHexColor(data.outfitColor)
         && isHexColor(data.accentColor)
         && (data.accessory == 'none' || data.accessory == 'glasses' || data.accessory == 'scarf' || data.accessory == 'lanyard')
-        && data.x is number && data.x >= -200 && data.x <= 200
-        && data.z is number && data.z >= -600 && data.z <= 120
+        && data.x is number && data.x >= -950 && data.x <= 300
+        && data.z is number && data.z >= -700 && data.z <= 300
         && data.yaw is number && data.yaw >= -10 && data.yaw <= 10
         && (!('isOnline' in data) || data.isOnline is bool)
         && (!('memberKey' in data) || (data.memberKey is string && data.memberKey.size() >= 1 && data.memberKey.size() <= 32 && data.memberKey.matches('^[a-zA-Z0-9_\\-]+$')))
+        && (!('ridingRideId' in data) || data.ridingRideId == null || (data.ridingRideId is string && data.ridingRideId.size() <= 64))
+        && (!('ridingVehicleId' in data) || data.ridingVehicleId == null || (data.ridingVehicleId is string && data.ridingVehicleId.size() <= 64))
         && data.isOpenByCode is bool
         && isValidEmailList(data.viewerEmails)
         && data.updatedAt is timestamp;
@@ -410,13 +416,10 @@ service cloud.firestore {
           && isValidId(visitorId)
           && museumExists(museumId)
           && canAccessMuseumData(getMuseum(museumId).data);
-        allow list: if isSignedIn() && (
-          existing().ownerId == request.auth.uid ||
-          existing().uid == request.auth.uid ||
-          existing().isOpenByCode == true ||
-          (hasVerifiedEmail() && request.auth.token.email in existing().viewerEmails) ||
-          (isAbidPrimaryOwner(existing().ownerId) && isAbidTrustedCircleVisitor())
-        );
+        allow list: if isSignedIn()
+          && isValidId(museumId)
+          && museumExists(museumId)
+          && canAccessMuseumData(getMuseum(museumId).data);
         allow create: if isVerified()
           && isValidId(museumId)
           && isValidId(visitorId)
@@ -440,7 +443,8 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'displayName', 'gender', 'skinTone', 'hairStyle', 'hairColor',
             'outfitStyle', 'outfitColor', 'accentColor', 'accessory',
-            'x', 'z', 'yaw', 'isOnline', 'memberKey', 'isOpenByCode', 'viewerEmails', 'updatedAt'
+            'x', 'z', 'yaw', 'isOnline', 'memberKey', 'isOpenByCode', 'viewerEmails', 'updatedAt',
+            'ridingRideId', 'ridingVehicleId'
           ]);
         allow delete: if isVerified()
           && isValidId(museumId)

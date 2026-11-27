@@ -328,13 +328,9 @@ function MyMuseumApp() {
         setCloudReady(true);
         setActiveMuseumId((prev) => {
           if (prev && inviteResolvedRef.current === `${user.uid}:${prev}`) return prev;
-          // Auto-land Abid's trusted circle (suraia475, abidsarker098) directly in Abid's museum
-          // unless they manually switched to another museum.
-          if (!manualMuseumChoiceRef.current && isTrustedAbidVisitorEmail(user.email)) {
-            const abidShared = list.find((m) => isAbidMuseum(m));
-            if (abidShared) return abidShared.id;
+          if (manualMuseumChoiceRef.current && prev && list.some((m) => m.id === prev)) {
+            return prev;
           }
-          if (prev && list.some((m) => m.id === prev)) return prev;
           return pickPreferredInitialMuseumId(list, user.uid, user.email);
         });
       }
@@ -375,6 +371,7 @@ function MyMuseumApp() {
 
         if (invitedMuseum) {
           inviteResolvedRef.current = `${user.uid}:${pendingInvite.museumId}`;
+          manualMuseumChoiceRef.current = true;
           setCloudMuseums((prev) =>
             prev.some((m) => m.id === invitedMuseum.id)
               ? prev.map((m) => (m.id === invitedMuseum.id ? invitedMuseum : m))

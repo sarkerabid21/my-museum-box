@@ -693,6 +693,14 @@ export async function upsertPresence(
   const memberKey = computeMemberKey(user.email);
   const boundedYaw = normalizeAngle(yaw);
   try {
+    const allViewerEmails = Array.from(
+      new Set([
+        (museum.ownerEmail || '').toLowerCase(),
+        ...museum.memberEmails.map((e) => e.toLowerCase()),
+        (user.email || '').toLowerCase(),
+      ])
+    ).filter(Boolean).slice(0, 10);
+
     const payload: Record<string, unknown> = {
       museumId: museum.id,
       ownerId: museum.ownerId,
@@ -706,14 +714,14 @@ export async function upsertPresence(
       outfitColor: avatar.outfitColor,
       accentColor: avatar.accentColor,
       accessory: avatar.accessory,
-      x: Math.max(-50, Math.min(50, Number(x.toFixed(2)))),
-      z: Math.max(-590, Math.min(50, Number(z.toFixed(2)))),
+      x: Math.max(-900, Math.min(250, Number(x.toFixed(2)))),
+      z: Math.max(-650, Math.min(250, Number(z.toFixed(2)))),
       yaw: Math.max(-9.9, Math.min(9.9, Number(boundedYaw.toFixed(3)))),
       isOnline: Boolean(isOnline),
       ridingRideId: ridingRideId ?? null,
       ridingVehicleId: ridingVehicleId ?? null,
       isOpenByCode: museum.isOpenByCode,
-      viewerEmails: museum.memberEmails.slice(0, 10),
+      viewerEmails: allViewerEmails,
       updatedAt: serverTimestamp(),
     };
     if (memberKey) {
@@ -757,17 +765,8 @@ export function subscribePresence(
   const colPath = `museums/${museum.id}/presence`;
   const colRef = collection(db, 'museums', museum.id, 'presence');
 
-  let q;
-  if (
-    museum.ownerId === user.uid ||
-    (isAbidMuseum(museum) && user.emailVerified && isTrustedAbidVisitorEmail(user.email))
-  ) {
-    q = query(colRef, where('ownerId', '==', museum.ownerId));
-  } else if (museum.isOpenByCode) {
-    q = query(colRef, where('isOpenByCode', '==', true));
-  } else {
-    q = query(colRef, where('viewerEmails', 'array-contains', (user.email || '').toLowerCase()));
-  }
+  // Real-time synchronization for all avatars present in this museum
+  const q = query(colRef, where('museumId', '==', museum.id));
 
   return onSnapshot(
     q,

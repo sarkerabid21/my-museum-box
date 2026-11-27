@@ -66,6 +66,32 @@ test('selects Abid museum first for suraia475 and abidsarker098, and personal mu
   );
 });
 
+test('auto-lands invited users directly into the shared museum when their personal museum is empty', () => {
+  const friendPersonalMuseum: MuseumMeta = {
+    id: 'museum_friend_uid',
+    ownerId: 'friend_uid',
+    ownerName: 'Friend User',
+    title: "Friend's Gallery",
+    description: 'Empty personal gallery',
+    accessCode: 'MUS-FRND',
+    wallTheme: 'alabaster',
+    isOpenByCode: false,
+    memberEmails: [],
+    curatorEmails: [],
+    artworkCount: 0,
+  };
+  const sharedMuseumWithFriend: MuseumMeta = {
+    ...abidMuseum,
+    memberEmails: ['friend@gmail.com'],
+  };
+  const list = [friendPersonalMuseum, sharedMuseumWithFriend];
+
+  assert.equal(
+    pickPreferredInitialMuseumId(list, 'friend_uid', 'friend@gmail.com'),
+    sharedMuseumWithFriend.id
+  );
+});
+
 test('deduplicates active Suraia presence by memberKey even if Google display name differs', () => {
   const now = 1_700_000_000_000;
   const suraiaLive: VisitorPresence = {

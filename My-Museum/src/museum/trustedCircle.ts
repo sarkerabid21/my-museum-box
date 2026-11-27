@@ -120,11 +120,32 @@ export function pickPreferredInitialMuseumId(
 ): string {
   if (museums.length === 0) return '';
 
+  const normalizedEmail = (userEmail ?? '').trim().toLowerCase();
+
+  // 1. For Abid's trusted circle, automatically land in Abid's shared museum
   if (isTrustedAbidVisitorEmail(userEmail)) {
     const abidMuseum =
       museums.find((m) => isAbidMuseum(m)) ??
       museums.find((m) => m.ownerId !== userUid);
     if (abidMuseum) return abidMuseum.id;
+  }
+
+  // 2. If the user was invited to a shared museum (their email is in memberEmails or curatorEmails)
+  // and their own personal museum is empty (0 artworks), automatically land in the shared museum
+  // so the two users are in the exact same museum and immediately see each other!
+  if (normalizedEmail) {
+    const invitedMuseum = museums.find(
+      (m) =>
+        m.ownerId !== userUid &&
+        (m.memberEmails?.some((e) => e.toLowerCase() === normalizedEmail) ||
+          m.curatorEmails?.some((e) => e.toLowerCase() === normalizedEmail))
+    );
+    if (invitedMuseum) {
+      const personal = museums.find((m) => m.ownerId === userUid);
+      if (!personal || personal.artworkCount === 0) {
+        return invitedMuseum.id;
+      }
+    }
   }
 
   const personal = museums.find((m) => m.ownerId === userUid);
